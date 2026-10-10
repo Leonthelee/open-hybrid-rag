@@ -16,7 +16,7 @@ logger = logging.getLogger("open_hybrid_rag.vector_guard")
 class VectorGuard:
     """
     Guardián Vectorial de Alta Densidad con Persistencia Atómica,
-    np.load(allow_pickle=False), Aislamiento por System Prompt y Validación Estricta.
+    Aislamiento por System Prompt, TTL, Eliminación de Documentos y Validación Estricta.
     """
     def __init__(self, high_threshold: float = config.RAG_CERTAINTY_THRESHOLD, min_threshold: float = config.RAG_MIN_THRESHOLD):
         self.high_threshold = high_threshold
@@ -39,6 +39,7 @@ class VectorGuard:
         vector: list[float],
         doc_type: str = "document",
         system_prompt: Optional[str] = None,
+        ttl_seconds: Optional[int] = None,
         metadata: Optional[dict] = None
     ) -> bool:
         """Agrega o actualiza un documento validando dimensiones y estructurando metadatos de caché."""
@@ -64,6 +65,9 @@ class VectorGuard:
         if system_prompt:
             doc_meta["system_prompt_hash"] = self.compute_prompt_hash(system_prompt)
 
+        if ttl_seconds is not None:
+            doc_meta["expires_at_timestamp"] = datetime.utcnow().timestamp() + ttl_seconds
+
         if doc_id in self.documents:
             idx = self.doc_ids.index(doc_id)
             if self.matrix is not None:
@@ -84,12 +88,30 @@ class VectorGuard:
         }
         return True
 
+    def delete_document(self, doc_id: str) -> bool:
+        """Elimina un documento de la memoria vectorial y metadatos."""
+        if doc_id not in self.documents:
+            return False
+
+        idx = self.doc_ids.index(doc_id)
+        self.doc_ids.pop(idx)
+        del self.documents[doc_id]
+
+        if self.matrix is not None:
+            if len(self.doc_ids) == 0:
+                self.matrix = None
+                self.expected_dim = None
+            else:
+                self.matrix = np.delete(self.matrix, idx, axis=0)
+
+        return True
+
     def match(
         self,
         query_vector: list[float],
         system_prompt: Optional[str] = None
     ) -> Tuple[str, Optional[dict], float]:
-        """Calcula similitud coseno ultra-rápida y respeta aislamiento de instrucciones."""
+        """Calcula similitud coseno ultra-rápida, verifica TTL y respeta aislamiento de instrucciones."""
         if self.matrix is None or len(self.doc_ids) == 0:
             return "ESCALATE_TO_CLOUD", None, 0.0
 
@@ -106,6 +128,12 @@ class VectorGuard:
         best_score = float(scores[best_idx])
         best_doc_id = self.doc_ids[best_idx]
         best_doc = self.documents[best_doc_id]
+
+        # Verificar expiración TTL
+        exp_ts = best_doc.get("metadata", {}).get("expires_at_timestamp")
+        if exp_ts and datetime.utcnow().timestamp() > exp_ts:
+            logger.info(f"[VectorGuard] Documento {best_doc_id} expirado por TTL.")
+            return "ESCALATE_TO_CLOUD", None, 0.0
 
         if best_score >= self.high_threshold:
             if best_doc.get("type") == "qa_cache":
@@ -135,7 +163,6 @@ class VectorGuard:
         tmp_meta = os.path.join(storage_dir, f".tmp_{os.path.basename(meta_path)}")
 
         try:
-            # Convertir doc_ids a array de strings con encoding UTF-8 explícito
             doc_ids_array = np.array(self.doc_ids, dtype=np.str_)
             np.savez_compressed(tmp_npz, matrix=self.matrix, doc_ids=doc_ids_array)
             
@@ -165,7 +192,6 @@ class VectorGuard:
             return False
 
         try:
-            # 1. Carga segura sin pickle
             with np.load(storage_path, allow_pickle=False) as data:
                 loaded_matrix = data["matrix"]
                 loaded_doc_ids = [str(x) for x in data["doc_ids"]]
@@ -175,7 +201,6 @@ class VectorGuard:
                 loaded_dim = meta.get("expected_dim")
                 loaded_docs = meta.get("documents", {})
 
-            # 2. Validación de consistencia transaccional
             if len(loaded_matrix) != len(loaded_doc_ids) or len(loaded_doc_ids) != len(loaded_docs):
                 logger.error(f"❌ Persistencia inconsistente: {len(loaded_matrix)} vectores vs {len(loaded_doc_ids)} IDs vs {len(loaded_docs)} docs. Rechazando índice.")
                 return False
@@ -188,7 +213,6 @@ class VectorGuard:
                 logger.error("❌ Dimensión de matriz inconsistente con metadatos. Rechazando índice.")
                 return False
 
-            # 3. Asignación atómica en memoria
             self.matrix = loaded_matrix.astype(np.float32)
             self.doc_ids = loaded_doc_ids
             self.expected_dim = loaded_dim

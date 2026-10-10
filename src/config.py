@@ -21,6 +21,9 @@ PORT = int(os.getenv("PORT", 8000))
 
 # Security & API Authentication
 API_KEY = os.getenv("API_KEY", "").strip()
+if API_KEY in ("your_api_key_here", "your-api-key", "change_me_in_production"):
+    API_KEY = ""
+
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*").strip()
 
 # Privacy Guard Strict Validation
@@ -44,17 +47,30 @@ def validate_server_security():
         )
 
 # Local LLM & Embedding Settings
-# Engine format: "ollama" | "openai_compatible" (LM Studio, vLLM, LocalAI)
 LOCAL_ENGINE_TYPE = os.getenv("LOCAL_ENGINE_TYPE", "ollama").lower().strip().replace("-", "_")
 LOCAL_LLM_URL = os.getenv("LOCAL_LLM_URL", "http://127.0.0.1:11434/api/chat")
 LOCAL_LLM_MODEL = os.getenv("LOCAL_LLM_MODEL", "qwen2.5:3b")
 LOCAL_EMBED_URL = os.getenv("LOCAL_EMBED_URL", "http://127.0.0.1:11434/api/embeddings")
 LOCAL_EMBED_MODEL = os.getenv("LOCAL_EMBED_MODEL", "qwen3-embedding:8b")
+JUDGE_MODEL = os.getenv("JUDGE_MODEL", LOCAL_LLM_MODEL)
 
 # Universal Cloud Fallback (Gemini / OpenAI / Anthropic / Groq / DeepSeek)
+PROVIDER_DEFAULT_MODELS = {
+    "gemini": "gemini-2.0-flash",
+    "anthropic": "claude-3-5-sonnet-20241022",
+    "openai": "gpt-4o-mini",
+    "groq": "llama-3.3-70b-versatile",
+    "deepseek": "deepseek-chat"
+}
+
 CLOUD_PROVIDER = os.getenv("CLOUD_PROVIDER", "gemini").lower().strip()
 CLOUD_API_KEY = os.getenv("CLOUD_API_KEY", "").strip()
-CLOUD_MODEL = os.getenv("CLOUD_MODEL", "gemini-2.0-flash").strip()
+if CLOUD_API_KEY in ("your_api_key_here", "your-api-key", "your_api_key"):
+    CLOUD_API_KEY = ""
+
+_custom_cloud_model = os.getenv("CLOUD_MODEL", "").strip()
+CLOUD_MODEL = _custom_cloud_model or PROVIDER_DEFAULT_MODELS.get(CLOUD_PROVIDER, "gemini-2.0-flash")
+CLOUD_MAX_TOKENS = int(os.getenv("CLOUD_MAX_TOKENS", 2048))
 
 # Knowledge Base & Persistence Paths
 SECOND_BRAIN_PATH = os.getenv("SECOND_BRAIN_PATH", "./knowledge_base")

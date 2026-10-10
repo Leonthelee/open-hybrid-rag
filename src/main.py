@@ -102,6 +102,7 @@ class IngestRequest(BaseModel):
     doc_id: Optional[str] = None
     doc_type: Literal["document"] = Field("document", description="Solo documentos de contexto ('document') son permitidos en ingesta pública.")
     system_prompt: Optional[str] = None
+    ttl_seconds: Optional[int] = None
     metadata: Optional[dict] = None
 
 @app.get("/")
@@ -148,6 +149,7 @@ async def ingest_document(req: IngestRequest):
             vector=vec,
             doc_type=req.doc_type,
             system_prompt=req.system_prompt,
+            ttl_seconds=req.ttl_seconds,
             metadata=req.metadata
         )
         vector_guard.save_to_disk(config.INDEX_STORAGE_PATH)
@@ -163,6 +165,24 @@ async def ingest_document(req: IngestRequest):
         "doc_type": req.doc_type,
         "vector_dims": len(vec),
         "total_documents": len(vector_guard.doc_ids)
+    }
+
+@app.delete("/api/v1/cache/{doc_id}", dependencies=[Depends(verify_api_key)])
+async def delete_cached_document(doc_id: str):
+    """Elimina un documento o par de caché del índice vectorial y persiste en disco."""
+    deleted = vector_guard.delete_document(doc_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Documento '{doc_id}' no encontrado en el índice.")
+
+    try:
+        vector_guard.save_to_disk(config.INDEX_STORAGE_PATH)
+    except Exception as e:
+        logger.error(f"Error al persistir tras eliminar: {e}")
+
+    return {
+        "status": "deleted",
+        "doc_id": doc_id,
+        "remaining_documents": len(vector_guard.doc_ids)
     }
 
 @app.post("/api/v1/orchestrate")
@@ -266,8 +286,10 @@ async def orchestrate_query(req: QueryRequest, request: Request, authorized: boo
     if req.audit_assert and source not in ("local_vector_cache", "local_privacy_abstention"):
         eval_result = await assert_evaluator.evaluate(req.query, answer, source)
 
+    total_latency_ms = round((time.perf_counter() - t_start) * 1000, 2)
+
     # =========================================================================
-    # 4. Almacenamiento Atómico en Second Brain
+    # 4. Almacenamiento Atómico en Second Brain (Solo para respuestas nuevas)
     # =========================================================================
     doc_id = None
     if source not in ("local_vector_cache", "local_privacy_abstention"):
@@ -276,6 +298,7 @@ async def orchestrate_query(req: QueryRequest, request: Request, authorized: boo
                 query=req.query,
                 answer=answer,
                 source=source,
+                latency_ms=total_latency_ms,
                 metadata={"similarity_score": score, "route": route}
             )
         except Exception as e:
@@ -287,7 +310,7 @@ async def orchestrate_query(req: QueryRequest, request: Request, authorized: boo
             should_cache = False
             logger.info("🛑 Respuesta rechazada por ASSERT. No se incorporará al QA Cache de alta certeza.")
 
-        if should_cache and vec:
+        if should_cache and vec and answer:
             try:
                 qa_doc_id = doc_id or f"KB-{uuid.uuid4().hex[:8]}"
                 vector_guard.add_document(
@@ -303,8 +326,6 @@ async def orchestrate_query(req: QueryRequest, request: Request, authorized: boo
                 logger.error(f"⚠️ Error al actualizar VectorGuard: {e}")
                 if not storage_warning:
                     storage_warning = f"Vector index persistence warning: {str(e)}"
-
-    total_latency_ms = round((time.perf_counter() - t_start) * 1000, 2)
 
     return {
         "request_id": request.state.req_id,

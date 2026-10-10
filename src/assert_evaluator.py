@@ -41,11 +41,11 @@ class AssertEvaluationResult(BaseModel):
     evaluation_status: str = "completed"
 
 class AssertEvaluator:
-    """Evaluador Spec-Driven inspirado en Microsoft Responsible AI ASSERT con validación de esquema Pydantic."""
+    """Evaluador Spec-Driven inspirado en Microsoft Responsible AI ASSERT con mitigación de Prompt Injection."""
     def __init__(
         self,
         judge_url: str = config.LOCAL_LLM_URL,
-        judge_model: str = config.LOCAL_LLM_MODEL,
+        judge_model: str = config.JUDGE_MODEL,
         engine_type: str = config.LOCAL_ENGINE_TYPE
     ):
         self.judge_url = judge_url
@@ -53,12 +53,16 @@ class AssertEvaluator:
         self.engine_type = engine_type
 
     async def evaluate(self, query: str, answer: str, source: str) -> Dict[str, Any]:
-        """Evalúa la interacción y retorna métricas validadas con Pydantic o estado explícito de indisponibilidad."""
+        """Evalúa la interacción usando delimitadores seguros XML para prevenir Prompt Injection."""
         payload = f"""
-[CASO DE PRUEBA]
-- Consulta: {query}
-- Respuesta Entregada: {answer}
-- Origen: {source}
+[CASO DE PRUEBA EVALUABLE]
+<source>{source}</source>
+<query>
+{query}
+</query>
+<answer>
+{answer}
+</answer>
 """
         messages = [
             {"role": "system", "content": PROMPT_ASSERT_SYSTEM},
@@ -77,12 +81,16 @@ class AssertEvaluator:
                             "stream": False
                         }
                     )
-                    if r.status_code == 200:
-                        raw_txt = r.json().get("message", {}).get("content", "{}")
-                    else:
-                        raise Exception(f"HTTP {r.status_code}: {r.text}")
+                    if r.status_code != 200:
+                        return {
+                            "evaluation_status": "http_error",
+                            "http_status": r.status_code,
+                            "passed": None,
+                            "overall_score": None,
+                            "feedback": f"El servicio juez retornó HTTP {r.status_code}: {r.text}"
+                        }
+                    raw_txt = r.json().get("message", {}).get("content", "{}")
                 else:
-                    # OpenAI Compatible
                     r = await client.post(
                         self.judge_url,
                         json={
@@ -91,12 +99,16 @@ class AssertEvaluator:
                             "response_format": {"type": "json_object"}
                         }
                     )
-                    if r.status_code == 200:
-                        raw_txt = r.json().get("choices", [{}])[0].get("message", {}).get("content", "{}")
-                    else:
-                        raise Exception(f"HTTP {r.status_code}: {r.text}")
+                    if r.status_code != 200:
+                        return {
+                            "evaluation_status": "http_error",
+                            "http_status": r.status_code,
+                            "passed": None,
+                            "overall_score": None,
+                            "feedback": f"El servicio juez retornó HTTP {r.status_code}: {r.text}"
+                        }
+                    raw_txt = r.json().get("choices", [{}])[0].get("message", {}).get("content", "{}")
 
-                # Limpieza de markdown si el modelo envolvió en ```json
                 cleaned = raw_txt.strip()
                 if cleaned.startswith("```"):
                     lines = cleaned.splitlines()
@@ -107,8 +119,6 @@ class AssertEvaluator:
                     cleaned = "\n".join(lines).strip()
 
                 parsed = json.loads(cleaned)
-                
-                # Validación estricta con Pydantic
                 validated = AssertEvaluationResult(**parsed)
                 return validated.model_dump()
 

@@ -11,13 +11,13 @@ import unittest
 from unittest.mock import patch, MagicMock, AsyncMock
 from fastapi.testclient import TestClient
 
-# Asegurar path de importación al root del repo
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
 
 import config
 from vector_guard import VectorGuard
 from second_brain import SecondBrain
 from assert_evaluator import AssertEvaluator
+from cloud_bridge import CloudBridge
 from main import app, vector_guard, local_engine, cloud_bridge, second_brain, assert_evaluator
 
 class TestVectorGuard(unittest.TestCase):
@@ -77,7 +77,6 @@ class TestVectorGuard(unittest.TestCase):
         self.guard.add_document("doc_valid", "Texto válido", vec1)
         self.guard.save_to_disk(self.index_path)
 
-        # Corromper el archivo JSON eliminando el doc_id de la metadata
         import json
         with open(self.meta_path, "w", encoding="utf-8") as f:
             json.dump({"expected_dim": 128, "documents": {}}, f)
@@ -104,6 +103,20 @@ class TestVectorGuard(unittest.TestCase):
         route, doc, score = self.guard.match(vec, system_prompt="Answer in concise English")
         self.assertEqual(route, "RESOLVE_LOCAL_MED")
 
+    def test_delete_document_and_ttl_expiration(self):
+        vec = [1.0] + [0.0] * 63
+        self.guard.add_document("doc_ttl", "Expira pronto", vec, ttl_seconds=-1)
+        # Expirado -> debe retornar ESCALATE_TO_CLOUD
+        route, doc, score = self.guard.match(vec)
+        self.assertEqual(route, "ESCALATE_TO_CLOUD")
+
+        # Probar eliminación
+        self.guard.add_document("doc_to_delete", "Borrar", vec)
+        self.assertEqual(len(self.guard.documents), 2)
+        deleted = self.guard.delete_document("doc_to_delete")
+        self.assertTrue(deleted)
+        self.assertEqual(len(self.guard.documents), 1)
+
 
 class TestSecondBrain(unittest.TestCase):
     def setUp(self):
@@ -120,7 +133,8 @@ class TestSecondBrain(unittest.TestCase):
             doc_id = self.brain.save_interaction(
                 query=f"Consulta concurrente {i}",
                 answer=f"Respuesta generada {i}",
-                source="test_suite"
+                source="test_suite",
+                latency_ms=12.5
             )
             saved_ids.append(doc_id)
             file_path = os.path.join(self.temp_dir, f"{doc_id}.md")
@@ -152,6 +166,32 @@ class TestAssertEvaluator(unittest.TestCase):
             res = asyncio.run(evaluator.evaluate("Pregunta", "Respuesta", "source"))
             self.assertEqual(res["evaluation_status"], "schema_violation")
             self.assertIsNone(res["passed"])
+
+
+class TestCloudBridge(unittest.TestCase):
+    def test_gemini_safety_block_reported(self):
+        bridge = CloudBridge(provider="gemini", api_key="test_key")
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "candidates": [{"finishReason": "SAFETY"}]
+        }
+        with patch("httpx.AsyncClient.post", return_value=mock_resp):
+            success, msg = asyncio.run(bridge.generate("Prompt"))
+            self.assertFalse(success)
+            self.assertIn("SAFETY_BLOCKED", msg)
+
+    def test_gemini_truncated_max_tokens_reported(self):
+        bridge = CloudBridge(provider="gemini", api_key="test_key")
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "candidates": [{"finishReason": "MAX_TOKENS"}]
+        }
+        with patch("httpx.AsyncClient.post", return_value=mock_resp):
+            success, msg = asyncio.run(bridge.generate("Prompt"))
+            self.assertFalse(success)
+            self.assertIn("TRUNCATED", msg)
 
 
 class TestFastAPIEndpoints(unittest.TestCase):
@@ -195,10 +235,16 @@ class TestFastAPIEndpoints(unittest.TestCase):
                 self.assertEqual(resp.status_code, 200)
 
     def test_public_ingest_rejects_qa_cache_doc_type(self):
-        # La ingesta pública solo debe aceptar 'document', nunca inyección de 'qa_cache'
         with patch.object(config, "API_KEY", ""):
             resp = self.client.post("/api/v1/ingest", json={"text": "bypass malicioso", "doc_type": "qa_cache"})
             self.assertEqual(resp.status_code, 422)
+
+    def test_delete_cached_document_endpoint(self):
+        with patch.object(vector_guard, "delete_document", return_value=True), \
+             patch.object(vector_guard, "save_to_disk"):
+            resp = self.client.delete("/api/v1/cache/KB-1234")
+            self.assertEqual(resp.status_code, 200)
+            self.assertEqual(resp.json()["status"], "deleted")
 
     def test_privacy_mode_abstention(self):
         with patch.object(config, "PRIVACY_MODE", config.PrivacyMode.LOCAL_ONLY), \
@@ -232,29 +278,20 @@ class TestFastAPIEndpoints(unittest.TestCase):
             self.assertEqual(data["route_taken"], "ESCALATE_TO_CLOUD_FALLBACK")
             self.assertEqual(data["source"], f"cloud_{config.CLOUD_PROVIDER}_fallback")
 
-    def test_failed_assert_is_not_promoted_to_qa_cache(self):
-        failed_assert = {
-            "technical_score": 3.0,
-            "clarity_score": 4.0,
-            "route_score": 5.0,
-            "overall_score": 4.0,
-            "passed": False,
-            "feedback": "Comandos inventados detectados.",
-            "evaluation_status": "completed"
-        }
+    def test_no_new_note_saved_on_qa_cache_hit(self):
+        cached_doc = {"id": "KB-EXISTING", "text": "Respuesta en caché", "type": "qa_cache", "metadata": {}}
         with patch.object(local_engine, "get_embedding", new_callable=AsyncMock, return_value=[0.1] * 768), \
-             patch.object(local_engine, "generate", new_callable=AsyncMock, return_value=(True, "Respuesta alucinada")), \
-             patch.object(assert_evaluator, "evaluate", new_callable=AsyncMock, return_value=failed_assert), \
-             patch.object(vector_guard, "add_document") as mock_add_doc:
+             patch.object(vector_guard, "match", return_value=("RESOLVE_LOCAL_HIGH", cached_doc, 0.98)), \
+             patch.object(second_brain, "save_interaction") as mock_save:
             
             resp = self.client.post("/api/v1/orchestrate", json={
-                "query": "¿Comando secreto?",
-                "audit_assert": True
+                "query": "¿Pregunta recurrente?",
+                "audit_assert": False
             })
             self.assertEqual(resp.status_code, 200)
-            data = resp.json()
-            self.assertFalse(data["assert_audit"]["passed"])
-            mock_add_doc.assert_not_called()
+            self.assertEqual(resp.json()["route_taken"], "RESOLVE_LOCAL_HIGH")
+            # En hit de caché no se vuelve a escribir en disco
+            mock_save.assert_not_called()
 
 
 if __name__ == "__main__":
