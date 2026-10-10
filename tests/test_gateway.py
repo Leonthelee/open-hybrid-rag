@@ -72,6 +72,17 @@ class TestVectorGuard(unittest.TestCase):
         self.assertEqual(guard_reloaded.expected_dim, 128)
         self.assertEqual(guard_reloaded.documents["doc_persist_2"]["type"], "qa_cache")
 
+    def test_batch_ingest_vectors(self):
+        batch = [
+            {"doc_id": "b1", "text": "Batch 1", "vector": [0.1] * 64},
+            {"doc_id": "b2", "text": "Batch 2", "vector": [0.2] * 64},
+            {"doc_id": "b3", "text": "Batch 3", "vector": [0.3] * 64}
+        ]
+        added = self.guard.add_documents_batch(batch)
+        self.assertEqual(added, 3)
+        self.assertEqual(len(self.guard.documents), 3)
+        self.assertEqual(self.guard.matrix.shape, (3, 64))
+
     def test_load_from_disk_rejects_inconsistent_doc_ids(self):
         vec1 = [0.1] * 128
         self.guard.add_document("doc_valid", "Texto válido", vec1)
@@ -106,11 +117,9 @@ class TestVectorGuard(unittest.TestCase):
     def test_delete_document_and_ttl_expiration(self):
         vec = [1.0] + [0.0] * 63
         self.guard.add_document("doc_ttl", "Expira pronto", vec, ttl_seconds=-1)
-        # Expirado -> debe retornar ESCALATE_TO_CLOUD
         route, doc, score = self.guard.match(vec)
         self.assertEqual(route, "ESCALATE_TO_CLOUD")
 
-        # Probar eliminación
         self.guard.add_document("doc_to_delete", "Borrar", vec)
         self.assertEqual(len(self.guard.documents), 2)
         deleted = self.guard.delete_document("doc_to_delete")
@@ -202,23 +211,52 @@ class TestFastAPIEndpoints(unittest.TestCase):
         self.storage_patcher = patch.object(config, "INDEX_STORAGE_PATH", self.temp_index)
         self.storage_patcher.start()
 
+        # Resetear estado en memoria de vector_guard para aislamiento de pruebas
+        vector_guard.doc_ids = []
+        vector_guard.vectors = []
+        vector_guard.documents = {}
+        vector_guard.expected_dim = None
+        vector_guard._matrix = None
+        vector_guard._matrix_dirty = True
+
     def tearDown(self):
         self.storage_patcher.stop()
         if os.path.exists(self.temp_dir):
             shutil.rmtree(self.temp_dir)
 
     def test_health_check(self):
-        response = self.client.get("/")
+        response = self.client.get("/health")
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data["status"], "online")
-        self.assertIn("vector_index", data)
-        self.assertIn("cloud_fallback", data)
+        self.assertIn("indexed_documents", data)
+
+    def test_config_endpoint_requires_auth(self):
+        with patch.object(config, "API_KEY", "secret_admin"):
+            resp = self.client.get("/api/v1/config")
+            self.assertEqual(resp.status_code, 401)
+
+            resp = self.client.get("/api/v1/config", headers={"X-API-Key": "secret_admin"})
+            self.assertEqual(resp.status_code, 200)
+            self.assertIn("cloud_fallback", resp.json())
 
     def test_security_validation_aborts_on_exposed_host_without_key(self):
         with patch.object(config, "HOST", "0.0.0.0"), patch.object(config, "API_KEY", ""):
             with self.assertRaises(RuntimeError):
                 config.validate_server_security()
+
+    def test_batch_ingest_endpoint(self):
+        with patch.object(local_engine, "get_embedding", new_callable=AsyncMock, return_value=[0.1] * 64), \
+             patch.object(vector_guard, "save_to_disk"):
+            payload = {
+                "documents": [
+                    {"text": "Doc 1", "doc_type": "document"},
+                    {"text": "Doc 2", "doc_type": "document"}
+                ]
+            }
+            resp = self.client.post("/api/v1/ingest/batch", json=payload)
+            self.assertEqual(resp.status_code, 200)
+            self.assertEqual(resp.json()["successfully_indexed"], 2)
 
     def test_auth_rejection_on_ingest(self):
         with patch.object(config, "API_KEY", "secret_key_123"):
@@ -290,7 +328,6 @@ class TestFastAPIEndpoints(unittest.TestCase):
             })
             self.assertEqual(resp.status_code, 200)
             self.assertEqual(resp.json()["route_taken"], "RESOLVE_LOCAL_HIGH")
-            # En hit de caché no se vuelve a escribir en disco
             mock_save.assert_not_called()
 
 

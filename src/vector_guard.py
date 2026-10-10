@@ -3,7 +3,7 @@ import json
 import hashlib
 import logging
 from datetime import datetime
-from typing import Optional, Tuple, Dict, Any
+from typing import Optional, Tuple, Dict, Any, List
 import numpy as np
 
 try:
@@ -15,16 +15,29 @@ logger = logging.getLogger("open_hybrid_rag.vector_guard")
 
 class VectorGuard:
     """
-    Guardián Vectorial de Alta Densidad con Persistencia Atómica,
-    Aislamiento por System Prompt, TTL, Eliminación de Documentos y Validación Estricta.
+    Guardián Vectorial de Alta Densidad con Ingesta O(1) Amortizada,
+    Persistencia Atómica, Aislamiento por System Prompt y TTL.
     """
     def __init__(self, high_threshold: float = config.RAG_CERTAINTY_THRESHOLD, min_threshold: float = config.RAG_MIN_THRESHOLD):
         self.high_threshold = high_threshold
         self.min_threshold = min_threshold
         self.expected_dim: Optional[int] = None
-        self.matrix: Optional[np.ndarray] = None
+        self.vectors: List[np.ndarray] = []
+        self._matrix: Optional[np.ndarray] = None
+        self._matrix_dirty: bool = True
         self.doc_ids: list[str] = []
         self.documents: Dict[str, dict] = {}
+
+    @property
+    def matrix(self) -> Optional[np.ndarray]:
+        """Matriz NumPy construida bajo demanda de forma vectorizada sin vstack O(N^2)."""
+        if self._matrix_dirty:
+            if self.vectors:
+                self._matrix = np.array(self.vectors, dtype=np.float32)
+            else:
+                self._matrix = None
+            self._matrix_dirty = False
+        return self._matrix
 
     @staticmethod
     def compute_prompt_hash(system_prompt: Optional[str]) -> str:
@@ -42,7 +55,7 @@ class VectorGuard:
         ttl_seconds: Optional[int] = None,
         metadata: Optional[dict] = None
     ) -> bool:
-        """Agrega o actualiza un documento validando dimensiones y estructurando metadatos de caché."""
+        """Agrega o actualiza un documento en O(1) amortizado sin reconstruir la matriz completa."""
         vec = np.array(vector, dtype=np.float32)
         if vec.ndim != 1 or len(vec) == 0 or not np.all(np.isfinite(vec)):
             raise ValueError("El vector debe ser un array unidimensional de números finitos.")
@@ -70,15 +83,12 @@ class VectorGuard:
 
         if doc_id in self.documents:
             idx = self.doc_ids.index(doc_id)
-            if self.matrix is not None:
-                self.matrix[idx] = vec
+            self.vectors[idx] = vec
         else:
             self.doc_ids.append(doc_id)
-            if self.matrix is None:
-                self.matrix = np.expand_dims(vec, axis=0)
-            else:
-                self.matrix = np.vstack([self.matrix, vec])
+            self.vectors.append(vec)
 
+        self._matrix_dirty = True
         self.documents[doc_id] = {
             "id": doc_id,
             "text": text,
@@ -88,6 +98,25 @@ class VectorGuard:
         }
         return True
 
+    def add_documents_batch(self, batch: List[dict]) -> int:
+        """Ingesta en lote de alta velocidad con una sola reconstrucción de matriz."""
+        added = 0
+        for doc in batch:
+            try:
+                self.add_document(
+                    doc_id=doc["doc_id"],
+                    text=doc["text"],
+                    vector=doc["vector"],
+                    doc_type=doc.get("doc_type", "document"),
+                    system_prompt=doc.get("system_prompt"),
+                    ttl_seconds=doc.get("ttl_seconds"),
+                    metadata=doc.get("metadata")
+                )
+                added += 1
+            except Exception as e:
+                logger.warning(f"Error indexando documento en lote ({doc.get('doc_id')}): {e}")
+        return added
+
     def delete_document(self, doc_id: str) -> bool:
         """Elimina un documento de la memoria vectorial y metadatos."""
         if doc_id not in self.documents:
@@ -95,14 +124,12 @@ class VectorGuard:
 
         idx = self.doc_ids.index(doc_id)
         self.doc_ids.pop(idx)
+        self.vectors.pop(idx)
         del self.documents[doc_id]
 
-        if self.matrix is not None:
-            if len(self.doc_ids) == 0:
-                self.matrix = None
-                self.expected_dim = None
-            else:
-                self.matrix = np.delete(self.matrix, idx, axis=0)
+        self._matrix_dirty = True
+        if len(self.doc_ids) == 0:
+            self.expected_dim = None
 
         return True
 
@@ -112,7 +139,8 @@ class VectorGuard:
         system_prompt: Optional[str] = None
     ) -> Tuple[str, Optional[dict], float]:
         """Calcula similitud coseno ultra-rápida, verifica TTL y respeta aislamiento de instrucciones."""
-        if self.matrix is None or len(self.doc_ids) == 0:
+        mat = self.matrix
+        if mat is None or len(self.doc_ids) == 0:
             return "ESCALATE_TO_CLOUD", None, 0.0
 
         q_vec = np.array(query_vector, dtype=np.float32)
@@ -123,7 +151,7 @@ class VectorGuard:
         if q_norm > 0:
             q_vec = q_vec / q_norm
 
-        scores = np.dot(self.matrix, q_vec)
+        scores = np.dot(mat, q_vec)
         best_idx = int(np.argmax(scores))
         best_score = float(scores[best_idx])
         best_doc_id = self.doc_ids[best_idx]
@@ -152,7 +180,8 @@ class VectorGuard:
 
     def save_to_disk(self, storage_path: str):
         """Persistencia atómica y segura en disco con array de strings para allow_pickle=False."""
-        if self.matrix is None or not self.doc_ids:
+        mat = self.matrix
+        if mat is None or not self.doc_ids:
             return
 
         storage_dir = os.path.dirname(os.path.abspath(storage_path))
@@ -164,7 +193,7 @@ class VectorGuard:
 
         try:
             doc_ids_array = np.array(self.doc_ids, dtype=np.str_)
-            np.savez_compressed(tmp_npz, matrix=self.matrix, doc_ids=doc_ids_array)
+            np.savez_compressed(tmp_npz, matrix=mat, doc_ids=doc_ids_array)
             
             with open(tmp_meta, "w", encoding="utf-8") as f:
                 json.dump({
@@ -213,7 +242,9 @@ class VectorGuard:
                 logger.error("❌ Dimensión de matriz inconsistente con metadatos. Rechazando índice.")
                 return False
 
-            self.matrix = loaded_matrix.astype(np.float32)
+            self.vectors = [loaded_matrix[i].astype(np.float32) for i in range(len(loaded_matrix))]
+            self._matrix = loaded_matrix.astype(np.float32)
+            self._matrix_dirty = False
             self.doc_ids = loaded_doc_ids
             self.expected_dim = loaded_dim
             self.documents = loaded_docs

@@ -1,11 +1,12 @@
 import time
 import uuid
 import secrets
+import asyncio
 import logging
 from datetime import datetime
-from typing import Optional, Dict, Any, Literal
+from typing import Optional, Dict, Any, Literal, List
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, HTTPException, Depends, Header, BackgroundTasks
+from fastapi import FastAPI, Request, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -52,7 +53,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Open Hybrid RAG Gateway",
     description="Universal Local-First AI Orchestrator with Multi-Cloud Fallback & ASSERT Quality Guard",
-    version="1.2.0",
+    version="1.3.0",
     lifespan=lifespan
 )
 
@@ -105,13 +106,30 @@ class IngestRequest(BaseModel):
     ttl_seconds: Optional[int] = None
     metadata: Optional[dict] = None
 
+class BatchIngestRequest(BaseModel):
+    documents: List[IngestRequest] = Field(..., min_items=1, max_items=1000)
+
 @app.get("/")
+@app.get("/health")
 async def health_check():
-    """Endpoint de salud del servicio con diagnóstico completo."""
+    """Endpoint de salud del servicio con diagnóstico y sondeo en vivo del motor local."""
+    local_alive = await local_engine.ping()
     return {
         "status": "online",
         "service": "Open Hybrid RAG Gateway",
         "privacy_mode": config.PRIVACY_MODE.value,
+        "local_engine_online": local_alive,
+        "indexed_documents": len(vector_guard.doc_ids),
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
+@app.get("/api/v1/config", dependencies=[Depends(verify_api_key)])
+async def get_system_config():
+    """Detalle completo de configuración del gateway (requiere autenticación)."""
+    return {
+        "privacy_mode": config.PRIVACY_MODE.value,
+        "host": config.HOST,
+        "port": config.PORT,
         "local_engine": {
             "type": config.LOCAL_ENGINE_TYPE,
             "llm_model": config.LOCAL_LLM_MODEL,
@@ -121,14 +139,16 @@ async def health_check():
         "cloud_fallback": {
             "provider": config.CLOUD_PROVIDER,
             "model": config.CLOUD_MODEL,
-            "configured": bool(config.CLOUD_API_KEY)
+            "configured": bool(config.CLOUD_API_KEY),
+            "max_tokens": config.CLOUD_MAX_TOKENS
         },
         "vector_index": {
             "indexed_documents": len(vector_guard.doc_ids),
             "expected_dimensions": vector_guard.expected_dim,
-            "storage_path": config.INDEX_STORAGE_PATH
-        },
-        "timestamp": datetime.utcnow().isoformat()
+            "storage_path": config.INDEX_STORAGE_PATH,
+            "high_certainty_threshold": config.RAG_CERTAINTY_THRESHOLD,
+            "min_retrieval_threshold": config.RAG_MIN_THRESHOLD
+        }
     }
 
 @app.post("/api/v1/ingest", dependencies=[Depends(verify_api_key)])
@@ -152,12 +172,12 @@ async def ingest_document(req: IngestRequest):
             ttl_seconds=req.ttl_seconds,
             metadata=req.metadata
         )
-        vector_guard.save_to_disk(config.INDEX_STORAGE_PATH)
+        await asyncio.to_thread(vector_guard.save_to_disk, config.INDEX_STORAGE_PATH)
     except ValueError as val_err:
         raise HTTPException(status_code=400, detail=str(val_err))
     except Exception as e:
         logger.error(f"Error persistiendo documento ingest: {e}")
-        raise HTTPException(status_code=500, detail=f"Error de persistencia: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error de almacenamiento persistente.")
 
     return {
         "status": "indexed",
@@ -165,6 +185,41 @@ async def ingest_document(req: IngestRequest):
         "doc_type": req.doc_type,
         "vector_dims": len(vec),
         "total_documents": len(vector_guard.doc_ids)
+    }
+
+@app.post("/api/v1/ingest/batch", dependencies=[Depends(verify_api_key)])
+async def ingest_documents_batch(req: BatchIngestRequest):
+    """Ingesta masiva en lote de documentos con persistencia diferida en hilo secundario."""
+    prepared_docs = []
+    failed_count = 0
+
+    for doc in req.documents:
+        vec = await local_engine.get_embedding(doc.text)
+        if not vec:
+            failed_count += 1
+            continue
+        
+        doc_id = doc.doc_id or f"DOC-{uuid.uuid4().hex[:8]}"
+        prepared_docs.append({
+            "doc_id": doc_id,
+            "text": doc.text,
+            "vector": vec,
+            "doc_type": doc.doc_type,
+            "system_prompt": doc.system_prompt,
+            "ttl_seconds": doc.ttl_seconds,
+            "metadata": doc.metadata
+        })
+
+    added = vector_guard.add_documents_batch(prepared_docs)
+    if added > 0:
+        await asyncio.to_thread(vector_guard.save_to_disk, config.INDEX_STORAGE_PATH)
+
+    return {
+        "status": "batch_indexed",
+        "total_requested": len(req.documents),
+        "successfully_indexed": added,
+        "failed_embeddings": failed_count,
+        "total_documents_in_index": len(vector_guard.doc_ids)
     }
 
 @app.delete("/api/v1/cache/{doc_id}", dependencies=[Depends(verify_api_key)])
@@ -175,7 +230,7 @@ async def delete_cached_document(doc_id: str):
         raise HTTPException(status_code=404, detail=f"Documento '{doc_id}' no encontrado en el índice.")
 
     try:
-        vector_guard.save_to_disk(config.INDEX_STORAGE_PATH)
+        await asyncio.to_thread(vector_guard.save_to_disk, config.INDEX_STORAGE_PATH)
     except Exception as e:
         logger.error(f"Error al persistir tras eliminar: {e}")
 
@@ -192,10 +247,13 @@ async def orchestrate_query(req: QueryRequest, request: Request, authorized: boo
     """
     t_start = time.perf_counter()
     storage_warning = None
+    local_available = True
 
     # 1. Obtener Embedding de la Consulta
     vec = await local_engine.get_embedding(req.query)
-    
+    if not vec:
+        local_available = False
+
     # 2. Evaluación de Ruta Vectorial
     route = "ESCALATE_TO_CLOUD"
     best_doc = None
@@ -234,6 +292,7 @@ async def orchestrate_query(req: QueryRequest, request: Request, authorized: boo
             answer = local_resp
             source = "local_slm_rag"
         else:
+            local_available = False
             if config.PRIVACY_MODE == config.PrivacyMode.LOCAL_ONLY or not req.allow_cloud_fallback:
                 route = "LOCAL_ABSTENTION"
                 answer = "No se encontró evidencia suficiente en la base local y la política de privacidad prohíbe el escalamiento a la nube."
@@ -246,9 +305,10 @@ async def orchestrate_query(req: QueryRequest, request: Request, authorized: boo
                     route = "ESCALATE_TO_CLOUD_FALLBACK"
                     source = f"cloud_{config.CLOUD_PROVIDER}_fallback"
                 else:
+                    logger.error(f"Fallo en Cloud Fallback: {cloud_resp}")
                     raise HTTPException(
                         status_code=502,
-                        detail=f"Error en inferencia local y en fallback cloud: {cloud_resp}"
+                        detail="Error procesando la consulta en el proveedor de nube."
                     )
 
     # =========================================================================
@@ -261,6 +321,8 @@ async def orchestrate_query(req: QueryRequest, request: Request, authorized: boo
                 answer = local_resp
                 route = "RESOLVE_LOCAL_ZERO_SHOT"
                 source = "local_slm_zero_shot"
+            else:
+                local_available = False
 
         if not answer:
             if config.PRIVACY_MODE == config.PrivacyMode.LOCAL_ONLY or not req.allow_cloud_fallback:
@@ -274,9 +336,10 @@ async def orchestrate_query(req: QueryRequest, request: Request, authorized: boo
                     route = "ESCALATE_TO_CLOUD"
                     source = f"cloud_{config.CLOUD_PROVIDER}"
                 else:
+                    logger.error(f"Fallo en Cloud: {cloud_resp}")
                     raise HTTPException(
                         status_code=502,
-                        detail=f"Fallo en proveedor cloud ({config.CLOUD_PROVIDER}): {cloud_resp}"
+                        detail="Error procesando la consulta en el proveedor de nube."
                     )
 
     # =========================================================================
@@ -321,7 +384,7 @@ async def orchestrate_query(req: QueryRequest, request: Request, authorized: boo
                     system_prompt=req.system_prompt,
                     metadata={"source": source, "query": req.query}
                 )
-                vector_guard.save_to_disk(config.INDEX_STORAGE_PATH)
+                await asyncio.to_thread(vector_guard.save_to_disk, config.INDEX_STORAGE_PATH)
             except Exception as e:
                 logger.error(f"⚠️ Error al actualizar VectorGuard: {e}")
                 if not storage_warning:
@@ -338,6 +401,7 @@ async def orchestrate_query(req: QueryRequest, request: Request, authorized: boo
         "telemetry": {
             "total_latency_ms": total_latency_ms,
             "escalated_to_cloud": "cloud" in source,
+            "local_available": local_available,
             "storage_warning": storage_warning
         },
         "assert_audit": eval_result
