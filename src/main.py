@@ -5,13 +5,20 @@ from typing import Optional
 from fastapi import FastAPI, Request, HTTPException, Depends, Header, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-
-from . import config
-from .vector_guard import VectorGuard
-from .local_engine import LocalEngine
-from .cloud_bridge import CloudBridge
-from .second_brain import SecondBrain
-from .assert_evaluator import AssertEvaluator
+try:
+    from . import config
+    from .vector_guard import VectorGuard
+    from .local_engine import LocalEngine
+    from .cloud_bridge import CloudBridge
+    from .second_brain import SecondBrain
+    from .assert_evaluator import AssertEvaluator
+except (ImportError, ValueError):
+    import config
+    from vector_guard import VectorGuard
+    from local_engine import LocalEngine
+    from cloud_bridge import CloudBridge
+    from second_brain import SecondBrain
+    from assert_evaluator import AssertEvaluator
 
 app = FastAPI(
     title="Open Hybrid RAG Gateway",

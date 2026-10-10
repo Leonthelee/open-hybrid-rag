@@ -1,6 +1,9 @@
 import httpx
 from typing import Optional, Tuple
-from . import config
+try:
+    from . import config
+except (ImportError, ValueError):
+    import config
 
 class CloudBridgeError(Exception):
     """Excepción para errores de conectividad o autenticación con proveedores cloud."""

@@ -1,7 +1,10 @@
 import httpx
 import json
 from typing import Optional, Dict, Any
-from . import config
+try:
+    from . import config
+except (ImportError, ValueError):
+    import config
 
 PROMPT_ASSERT_SYSTEM = """Eres el Árbitro Evaluador ASSERT. Tu misión es calificar una respuesta técnica frente a 3 especificaciones duras:
 

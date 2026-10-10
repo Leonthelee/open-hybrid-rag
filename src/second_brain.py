@@ -3,7 +3,10 @@ import uuid
 import tempfile
 from datetime import datetime
 from typing import Optional
-from . import config
+try:
+    from . import config
+except (ImportError, ValueError):
+    import config
 
 class SecondBrain:
     """Gestor de Ingestión Continua y Memoria con Escritura Atómica y UUID Anti-Colisión."""

@@ -1,82 +1,332 @@
 {
   "title": "50-Question Technical Confidence & RAG Calibration Benchmark",
   "author_profile": "Universal Engineering Assessment Dataset",
-  "version": "1.0.0",
-  "description": "50 preguntas técnicas rigurosas de la vida real para evaluar y calibrar la precisión de cualquier agente RAG antes de salir a producción.",
+  "version": "2.0.0",
+  "description": "50 preguntas técnicas rigurosas con ground truth etiquetado y palabras clave de referencia para evaluar recuperación, precisión y latencia p50/p95.",
   "categories": [
     {
       "category": "1. Redes, Protocolos & Telecomunicaciones",
       "questions": [
-        {"id": "NET-01", "question": "¿Cómo solucionar un problema de BGP flapping en un router de borde y qué parámetros ajustar?"},
-        {"id": "NET-02", "question": "¿Cuál es la diferencia exacta entre MTU y MSS y cómo diagnosticar un agujero negro de paquetes por 'Don't Fragment'?"},
-        {"id": "NET-03", "question": "Configura una VLAN troncal 802.1Q en Linux usando iproute2 o NetworkManager."},
-        {"id": "NET-04", "question": "¿Cómo depurar un túnel IPsec IKEv2 que falla en la Fase 2 (Quick Mode / SA mismatch)?"},
-        {"id": "NET-05", "question": "Explica la diferencia mecánica entre STP, RSTP y MSTP en switches de acceso."},
-        {"id": "NET-06", "question": "¿Cómo rastrear una tormenta de broadcast (Broadcast Storm) en una red LAN corporativa?"},
-        {"id": "NET-07", "question": "¿Cómo configurar OSPF multi-área con autenticación MD5 entre dos routers?"},
-        {"id": "NET-08", "question": "¿Qué comando usar para capturar tráfico DNS en interfaz eth0 filtrando solo respuestas SERVFAIL con tcpdump?"},
-        {"id": "NET-09", "question": "Calcula la máscara de red y host usable para dividir 10.50.0.0/16 en 8 subredes iguales."},
-        {"id": "NET-10", "question": "¿Cómo configurar un proxy inverso Nginx con WebSocket support y headers X-Forwarded-For?"}
+        {
+          "id": "NET-01",
+          "question": "¿Cómo solucionar un problema de BGP flapping en un router de borde y qué parámetros ajustar?",
+          "expected_keywords": ["bgp", "flapping", "hold time", "keepalive", "dampening"],
+          "ground_truth_summary": "Ajustar timers de keepalive/holdtime, habilitar BGP route dampening e inspeccionar estabilidad física o MTU del enlace."
+        },
+        {
+          "id": "NET-02",
+          "question": "¿Cuál es la diferencia exacta entre MTU y MSS y cómo diagnosticar un agujero negro de paquetes por 'Don't Fragment'?",
+          "expected_keywords": ["mtu", "mss", "icmp", "don't fragment", "df", "tcpdump"],
+          "ground_truth_summary": "MTU es el tamaño máximo a nivel de enlace L2/L3 (1500 bytes default); MSS es el payload TCP (MTU - headers IP/TCP, usualmente 1460). Se diagnostica con ping DF o tcpdump buscando ICMP Type 3 Code 4."
+        },
+        {
+          "id": "NET-03",
+          "question": "Configura una VLAN troncal 802.1Q en Linux usando iproute2 o NetworkManager.",
+          "expected_keywords": ["vlan", "ip link add", "type vlan", "id", "802.1q"],
+          "ground_truth_summary": "ip link add link eth0 name eth0.100 type vlan id 100; ip link set dev eth0.100 up."
+        },
+        {
+          "id": "NET-04",
+          "question": "¿Cómo depurar un túnel IPsec IKEv2 que falla en la Fase 2 (Quick Mode / SA mismatch)?",
+          "expected_keywords": ["ipsec", "ikev2", "phase 2", "proposal", "sa", "transform set"],
+          "ground_truth_summary": "Verificar coincidencia en cifrado (AES-GCM/CBC), hash de integridad, PFS (Diffie-Hellman group) y subredes locales/remotas negociadas."
+        },
+        {
+          "id": "NET-05",
+          "question": "Explica la diferencia mecánica entre STP, RSTP y MSTP en switches de acceso.",
+          "expected_keywords": ["stp", "rstp", "mstp", "802.1d", "802.1w", "802.1s", "convergencia"],
+          "ground_truth_summary": "STP (802.1D) converge en 30-50s; RSTP (802.1w) reduce a milisegundos con negociación proposal/agreement; MSTP (802.1s) mapea múltiples VLANs a instancias comunes de árbol."
+        },
+        {
+          "id": "NET-06",
+          "question": "¿Cómo rastrear una tormenta de broadcast (Broadcast Storm) en una red LAN corporativa?",
+          "expected_keywords": ["broadcast storm", "loop", "storm control", "wireshark", "mac flap"],
+          "ground_truth_summary": "Monitorear puertos con flapping de MAC, revisar contadores de paquetes broadcast/multicast en switches y aplicar storm-control."
+        },
+        {
+          "id": "NET-07",
+          "question": "¿Cómo configurar OSPF multi-área con autenticación MD5 entre dos routers?",
+          "expected_keywords": ["ospf", "area", "abr", "md5", "authentication", "router ospf"],
+          "ground_truth_summary": "Definir Area 0 como backbone, configurar áreas no-cero conectadas al ABR y habilitar 'ip ospf message-digest-key' en interfaces."
+        },
+        {
+          "id": "NET-08",
+          "question": "¿Qué comando usar para capturar tráfico DNS en interfaz eth0 filtrando solo respuestas SERVFAIL con tcpdump?",
+          "expected_keywords": ["tcpdump", "port 53", "servfail", "udp", "eth0"],
+          "ground_truth_summary": "tcpdump -i eth0 -nn 'udp port 53 and (udp[11] & 0x0f == 2)' para capturar respuestas con RCODE=2 (SERVFAIL)."
+        },
+        {
+          "id": "NET-09",
+          "question": "Calcula la máscara de red y host usable para dividir 10.50.0.0/16 en 8 subredes iguales.",
+          "expected_keywords": ["/19", "255.255.224.0", "8190", "subredes"],
+          "ground_truth_summary": "Para 8 subredes se piden 3 bits (16 + 3 = /19, máscara 255.255.224.0). Cada subred tiene 8,192 direcciones (8,190 hosts usables)."
+        },
+        {
+          "id": "NET-10",
+          "question": "¿Cómo configurar un proxy inverso Nginx con WebSocket support y headers X-Forwarded-For?",
+          "expected_keywords": ["proxy_pass", "proxy_set_header", "upgrade", "connection", "x-forwarded-for"],
+          "ground_truth_summary": "Definir proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection 'upgrade'; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; en el bloque location."
+        }
       ]
     },
     {
       "category": "2. Sistemas Operativos, Linux & Windows Server",
       "questions": [
-        {"id": "OS-01", "question": "¿Cómo reiniciar de forma forzada el servicio Print Spooler en Windows Server bloqueado por cola corrupta?"},
-        {"id": "OS-02", "question": "¿Cómo desbloquear una cuenta de Active Directory y resetear password usando PowerShell?"},
-        {"id": "OS-03", "question": "¿Cómo diagnosticar un Kernel Panic en Linux analizando /var/crash o dmesg?"},
-        {"id": "OS-04", "question": "Explica cómo extender un volumen LVM online sin desmontar el filesystem ext4/xfs."},
-        {"id": "OS-05", "question": "¿Cómo configurar un servicio systemd con reinicio automático (Restart=always) y límites de memoria (MemoryMax)?"},
-        {"id": "OS-06", "question": "¿Cómo detectar qué proceso tiene tomado un puerto TCP específico en Linux y en Windows?"},
-        {"id": "OS-07", "question": "Configura permisos POSIX con ACLs (setfacl) para que un grupo específico tenga solo lectura recursiva."},
-        {"id": "OS-08", "question": "¿Cómo solucionar un error de arranque 'GRUB rescue' tras una falla de tabla de particiones?"},
-        {"id": "OS-09", "question": "¿Cómo auditar intentos fallidos de inicio de sesión SSH en /var/log/auth.log con journalctl?"},
-        {"id": "OS-10", "question": "¿Cómo configurar Rotación de Logs (logrotate) para evitar saturación de disco /var/log?"}
+        {
+          "id": "OS-01",
+          "question": "¿Cómo reiniciar de forma forzada el servicio Print Spooler en Windows Server bloqueado por cola corrupta?",
+          "expected_keywords": ["spooler", "stop-service", "system32\\spool\\printers", "start-service"],
+          "ground_truth_summary": "Detener servicio Spooler (Stop-Service), purgar archivos *.spl y *.shd en C:\\Windows\\System32\\spool\\PRINTERS, e iniciar el servicio nuevamente."
+        },
+        {
+          "id": "OS-02",
+          "question": "¿Cómo desbloquear una cuenta de Active Directory y resetear password usando PowerShell?",
+          "expected_keywords": ["unlock-adaccount", "set-adaccountpassword", "activedirectory", "identity"],
+          "ground_truth_summary": "Unlock-ADAccount -Identity <usuario> seguido de Set-ADAccountPassword -Identity <usuario> -NewPassword <SecureString> -Reset."
+        },
+        {
+          "id": "OS-03",
+          "question": "¿Cómo diagnosticar un Kernel Panic en Linux analizando /var/crash o dmesg?",
+          "expected_keywords": ["kernel panic", "dmesg", "kdump", "crash", "call trace", "oops"],
+          "ground_truth_summary": "Inspeccionar call trace en dmesg/syslog, verificar drivers involucrados o fallas de memoria (RAM/OOM), y analizar el vmcore generado por kdump con la utilidad crash."
+        },
+        {
+          "id": "OS-04",
+          "question": "Explica cómo extender un volumen LVM online sin desmontar el filesystem ext4/xfs.",
+          "expected_keywords": ["lvextend", "resize2fs", "xfs_growfs", "lvm", "online"],
+          "ground_truth_summary": "Ejecutar lvextend -r -L +<tamaño> /dev/mapper/<vg-lv> o manualmente lvextend seguido de resize2fs (ext4) o xfs_growfs (xfs)."
+        },
+        {
+          "id": "OS-05",
+          "question": "¿Cómo configurar un servicio systemd con reinicio automático (Restart=always) y límites de memoria (MemoryMax)?",
+          "expected_keywords": ["systemd", "restart=always", "memorymax", "[service]", "systemctl daemon-reload"],
+          "ground_truth_summary": "Crear archivo en /etc/systemd/system/ con sección [Service] conteniendo Restart=always, RestartSec=5s y MemoryMax=2G, luego systemctl daemon-reload."
+        },
+        {
+          "id": "OS-06",
+          "question": "¿Cómo detectar qué proceso tiene tomado un puerto TCP específico en Linux y en Windows?",
+          "expected_keywords": ["ss -tulpn", "netstat -ano", "lsof -i", "pid"],
+          "ground_truth_summary": "Linux: ss -tulpn | grep :<puerto> o lsof -i :<puerto>. Windows: netstat -ano | findstr :<puerto> y Get-Process -Id <pid>."
+        },
+        {
+          "id": "OS-07",
+          "question": "Configura permisos POSIX con ACLs (setfacl) para que un grupo específico tenga solo lectura recursiva.",
+          "expected_keywords": ["setfacl", "-r", "-m", "g:grupo:r-x", "getfacl"],
+          "ground_truth_summary": "setfacl -R -m g:<nombre_grupo>:r-X /ruta/al/directorio y setfacl -R -d -m g:<nombre_grupo>:r-X /ruta para permisos por defecto."
+        },
+        {
+          "id": "OS-08",
+          "question": "¿Cómo solucionar un error de arranque 'GRUB rescue' tras una falla de tabla de particiones?",
+          "expected_keywords": ["grub rescue", "set root", "set prefix", "insmod normal", "grub-install"],
+          "ground_truth_summary": "Identificar partición con ls, configurar set root=(hdX,gptY) y set prefix=(hdX,gptY)/boot/grub, ejecutar insmod normal y luego reinstalar con grub-install."
+        },
+        {
+          "id": "OS-09",
+          "question": "¿Cómo auditar intentos fallidos de inicio de sesión SSH en /var/log/auth.log con journalctl?",
+          "expected_keywords": ["journalctl", "-u ssh", "failed password", "auth.log"],
+          "ground_truth_summary": "journalctl -u ssh.service | grep 'Failed password' o journalctl -u sshd -g 'Failed'."
+        },
+        {
+          "id": "OS-10",
+          "question": "¿Cómo configurar Rotación de Logs (logrotate) para evitar saturación de disco /var/log?",
+          "expected_keywords": ["logrotate", "daily", "rotate", "compress", "missingok", "notifempty"],
+          "ground_truth_summary": "Crear archivo en /etc/logrotate.d/ con directivas: daily, rotate 7, compress, delaycompress, missingok, notifempty y copytruncate."
+        }
       ]
     },
     {
       "category": "3. Contenedores, Docker & Kubernetes",
       "questions": [
-        {"id": "DOCK-01", "question": "¿Por qué un contenedor Docker recibe señal SIGKILL (Exit code 137 / OOMKilled) y cómo mitigarlo?"},
-        {"id": "DOCK-02", "question": "Escribe un Dockerfile multi-stage build en Python optimizado para producción sin build-tools en la imagen final."},
-        {"id": "DOCK-03", "question": "¿Cómo conectar un contenedor en una red bridge personalizada con un servicio en el host del host?"},
-        {"id": "DOCK-04", "question": "¿Cuál es la diferencia entre EXPOSE en Dockerfile y publicar puertos con -p 8080:80?"},
-        {"id": "DOCK-05", "question": "Configura un docker-compose.yml con healthcheck para PostgreSQL y condición service_healthy para la API."},
-        {"id": "DOCK-06", "question": "¿Cómo depurar un pod en Kubernetes en estado CrashLoopBackOff?"},
-        {"id": "DOCK-07", "question": "Explica la diferencia entre un Deployment, un StatefulSet y un DaemonSet en Kubernetes."},
-        {"id": "DOCK-08", "question": "¿Cómo limpiar espacio en disco consumido por volúmenes huérfanos y capas dangling en Docker?"},
-        {"id": "DOCK-09", "question": "Configura un ingress controller en K8s con TLS termination automático vía cert-manager."},
-        {"id": "DOCK-10", "question": "¿Cómo montar un secreto de forma segura dentro de un contenedor sin exponerlo en las variables de entorno?"}
+        {
+          "id": "DOCK-01",
+          "question": "¿Por qué un contenedor Docker recibe señal SIGKILL (Exit code 137 / OOMKilled) y cómo mitigarlo?",
+          "expected_keywords": ["oomkilled", "137", "sigkill", "cgroup", "mem_limit", "limits.memory"],
+          "ground_truth_summary": "El proceso superó el límite de memoria asignado por cgroups y el kernel OOM Killer lo finalizó con SIGKILL (128+9=137). Se mitiga aumentando límites de memoria o corrigiendo fugas."
+        },
+        {
+          "id": "DOCK-02",
+          "question": "Escribe un Dockerfile multi-stage build en Python optimizado para producción sin build-tools en la imagen final.",
+          "expected_keywords": ["as builder", "from python:slim", "copy --from=builder", "multi-stage"],
+          "ground_truth_summary": "Etapa 1 (builder) compila ruedas (wheels) con gcc; Etapa 2 (final) copia solo los paquetes instalados sin compilers en una imagen slim."
+        },
+        {
+          "id": "DOCK-03",
+          "question": "¿Cómo conectar un contenedor en una red bridge personalizada con un servicio en el host del host?",
+          "expected_keywords": ["host.docker.internal", "extra_hosts", "gateway bridge"],
+          "ground_truth_summary": "Usar host.docker.internal agregando --add-host=host.docker.internal:host-gateway o accediendo a la IP del gateway del bridge (172.17.0.1)."
+        },
+        {
+          "id": "DOCK-04",
+          "question": "¿Cuál es la diferencia entre EXPOSE en Dockerfile y publicar puertos con -p 8080:80?",
+          "expected_keywords": ["expose", "-p", "publicar", "iptables", "documentación"],
+          "ground_truth_summary": "EXPOSE es metadato documental que no mapea puertos; -p (publish) abre reglas en iptables y enlaza el puerto del host con el del contenedor."
+        },
+        {
+          "id": "DOCK-05",
+          "question": "Configura un docker-compose.yml con healthcheck para PostgreSQL y condición service_healthy para la API.",
+          "expected_keywords": ["healthcheck", "pg_isready", "depends_on", "condition: service_healthy"],
+          "ground_truth_summary": "Definir healthcheck con test: ['CMD-SHELL', 'pg_isready -U user'] y en el servicio de la API depends_on: db: condition: service_healthy."
+        },
+        {
+          "id": "DOCK-06",
+          "question": "¿Cómo depurar un pod en Kubernetes en estado CrashLoopBackOff?",
+          "expected_keywords": ["kubectl logs", "--previous", "kubectl describe pod", "events", "exit code"],
+          "ground_truth_summary": "Ejecutar kubectl describe pod para ver eventos de terminación y kubectl logs <pod> --previous para inspeccionar la traza antes de la caída."
+        },
+        {
+          "id": "DOCK-07",
+          "question": "Explica la diferencia entre un Deployment, un StatefulSet y un DaemonSet en Kubernetes.",
+          "expected_keywords": ["deployment", "statefulset", "daemonset", "stateless", "nodos", "volumen persistente"],
+          "ground_truth_summary": "Deployment es para cargas sin estado escalables; StatefulSet preserva identidad de red y almacenamiento individual por réplica; DaemonSet ejecuta exactamente un pod en cada nodo del cluster."
+        },
+        {
+          "id": "DOCK-08",
+          "question": "¿Cómo limpiar espacio en disco consumido por volúmenes huérfanos y capas dangling en Docker?",
+          "expected_keywords": ["docker system prune", "docker volume prune", "-a", "--volumes"],
+          "ground_truth_summary": "docker system prune -a --volumes para purgar contenedores detenidos, imágenes sin usar, redes y volúmenes anónimos huérfanos."
+        },
+        {
+          "id": "DOCK-09",
+          "question": "Configura un ingress controller en K8s con TLS termination automático vía cert-manager.",
+          "expected_keywords": ["ingress", "tls", "cert-manager", "clusterissuer", "secretname"],
+          "ground_truth_summary": "Agregar anotación cert-manager.io/cluster-issuer: letsencrypt-prod y bloque spec.tls con hosts y secretName."
+        },
+        {
+          "id": "DOCK-10",
+          "question": "¿Cómo montar un secreto de forma segura dentro de un contenedor sin exponerlo en las variables de entorno?",
+          "expected_keywords": ["secret", "volume mount", "tmpfs", "read-only"],
+          "ground_truth_summary": "Montar el secreto como archivo en disco en memoria volátil (tmpfs o Secret Volume en K8s con mountPath) para evitar que inspect o volcados de entorno lo revelen."
+        }
       ]
     },
     {
       "category": "4. Bases de Datos & Arquitectura de Backend",
       "questions": [
-        {"id": "DB-01", "question": "¿Por qué una consulta SQL hace un Sequential Scan en lugar de usar un índice B-Tree existente?"},
-        {"id": "DB-02", "question": "¿Cómo diagnosticar y resolver un Deadlock en PostgreSQL analizando pg_stat_activity?"},
-        {"id": "DB-03", "question": "Explica la diferencia entre aislamiento READ COMMITTED y REPEATABLE READ en transacciones ACID."},
-        {"id": "DB-04", "question": "¿Cómo optimizar una consulta pesada con JOINs múltiples usando EXPLAIN ANALYZE?"},
-        {"id": "DB-05", "question": "Escribe una estrategia de caché 'Cache-Aside' con Redis para una API REST de alto tráfico."},
-        {"id": "DB-06", "question": "¿Cómo configurar replicación Streaming (Primary-Standby) en PostgreSQL 15+?"},
-        {"id": "DB-07", "question": "¿Qué problemas de concurrencia resuelve el Bloqueo Pesimista (SELECT ... FOR UPDATE)?"},
-        {"id": "DB-08", "question": "¿Cómo particionar por rangos de fecha una tabla de auditoría con millones de registros en SQL?"},
-        {"id": "DB-09", "question": "Explica cuándo usar una base de datos documental (NoSQL) versus una relacional en microservicios."},
-        {"id": "DB-10", "question": "¿Cómo ejecutar un rollback seguro de migraciones de base de datos en un pipeline CI/CD?"}
+        {
+          "id": "DB-01",
+          "question": "¿Por qué una consulta SQL hace un Sequential Scan en lugar de usar un índice B-Tree existente?",
+          "expected_keywords": ["seq scan", "selectividad", "estadísticas", "vacuum analyze", "funciones"],
+          "ground_truth_summary": "El optimizador estima que leer la tabla completa es más barato debido a baja selectividad (trae alto % de filas), estadísticas desactualizadas o uso de funciones sobre la columna indexada."
+        },
+        {
+          "id": "DB-02",
+          "question": "¿Cómo diagnosticar y resolver un Deadlock en PostgreSQL analizando pg_stat_activity?",
+          "expected_keywords": ["deadlock", "pg_stat_activity", "pg_locks", "pg_cancel_backend", "pg_terminate_backend"],
+          "ground_truth_summary": "Consultar pg_locks y pg_stat_activity uniendo por pid de bloqueo; terminar la sesión conflictiva con pg_terminate_backend(pid) y estandarizar el orden de actualización de tablas en el código."
+        },
+        {
+          "id": "DB-03",
+          "question": "Explica la diferencia entre aislamiento READ COMMITTED y REPEATABLE READ en transacciones ACID.",
+          "expected_keywords": ["read committed", "repeatable read", "non-repeatable read", "phantom read", "snapshot"],
+          "ground_truth_summary": "READ COMMITTED lee el snapshot más reciente al momento de cada sentencia (permite lecturas no repetibles); REPEATABLE READ mantiene la foto congelada desde el inicio de la transacción."
+        },
+        {
+          "id": "DB-04",
+          "question": "¿Cómo optimizar una consulta pesada con JOINs múltiples usando EXPLAIN ANALYZE?",
+          "expected_keywords": ["explain analyze", "nested loop", "hash join", "cost", "actual time", "buffers"],
+          "ground_truth_summary": "Identificar discrepancias entre cost estimado y actual rows, cuellos de botella en Nested Loops vs Hash Joins, y agregar índices compuestos o reescribir subconsultas."
+        },
+        {
+          "id": "DB-05",
+          "question": "Escribe una estrategia de caché 'Cache-Aside' con Redis para una API REST de alto tráfico.",
+          "expected_keywords": ["cache-aside", "redis.get", "db fallback", "redis.setex", "ttl"],
+          "ground_truth_summary": "1. Consultar Redis con clave. 2. Si existe (Hit), retornar. 3. Si no (Miss), consultar BD, escribir en Redis con TTL (SETEX) y retornar resultado."
+        },
+        {
+          "id": "DB-06",
+          "question": "¿Cómo configurar replicación Streaming (Primary-Standby) en PostgreSQL 15+?",
+          "expected_keywords": ["streaming replication", "primary_conninfo", "pg_basebackup", "standby.signal", "wal_level=replica"],
+          "ground_truth_summary": "Configurar wal_level=replica en primario, crear usuario de replicación, ejecutar pg_basebackup en standby y generar archivo standby.signal con primary_conninfo."
+        },
+        {
+          "id": "DB-07",
+          "question": "¿Qué problemas de concurrencia resuelve el Bloqueo Pesimista (SELECT ... FOR UPDATE)?",
+          "expected_keywords": ["for update", "race condition", "lost update", "bloqueo pesimista", "fila"],
+          "ground_truth_summary": "Previene modificaciones concurrentes y condiciones de carrera (Lost Updates) bloqueando a nivel de fila hasta que la transacción actual confirme (COMMIT) o aborte (ROLLBACK)."
+        },
+        {
+          "id": "DB-08",
+          "question": "¿Cómo particionar por rangos de fecha una tabla de auditoría con millones de registros en SQL?",
+          "expected_keywords": ["partition by range", "create table ... partition of", "for values from", "particionado"],
+          "ground_truth_summary": "Crear tabla padre con PARTITION BY RANGE (fecha) y crear tablas hijas con FOR VALUES FROM ('YYYY-MM-01') TO ('YYYY-MM-01')."
+        },
+        {
+          "id": "DB-09",
+          "question": "Explica cuándo usar una base de datos documental (NoSQL) versus una relacional en microservicios.",
+          "expected_keywords": ["nosql", "relacional", "schema flex", "joins", "acid", "documental"],
+          "ground_truth_summary": "Relacional: esquemas rígidos, transacciones ACID complejas multi-tabla y consistencia fuerte. NoSQL: esquemas polimórficos, datos anidados jerárquicos y escalabilidad horizontal de lectura rápida."
+        },
+        {
+          "id": "DB-10",
+          "question": "¿Cómo ejecutar un rollback seguro de migraciones de base de datos en un pipeline CI/CD?",
+          "expected_keywords": ["rollback", "migraciones", "backward compatible", "expand and contract", "alembic / flyway"],
+          "ground_truth_summary": "Aplicar el patrón Expand/Contract (fases compatibles hacia atrás donde el código anterior no falla con el esquema nuevo) y tener scripts idempotentes 'down/undo' testeados."
+        }
       ]
     },
     {
       "category": "5. Inteligencia Artificial, RAG & LLMOps",
       "questions": [
-        {"id": "AI-01", "question": "¿Cómo se calcula la similitud coseno entre dos vectores y por qué se deben normalizar los embeddings?"},
-        {"id": "AI-02", "question": "¿Cuál es la diferencia entre chunking por tamaño fijo versus chunking semántico por encabezados Markdown?"},
-        {"id": "AI-03", "question": "¿Cómo implementar un Re-ranker (Cross-Encoder) después del retrieval vectorial para reducir falsos positivos?"},
-        {"id": "AI-04", "question": "Explica qué es la cuantización de modelos LLM (GGUF, Q4_K_M vs FP16) y su impacto en VRAM y perplejidad."},
-        {"id": "AI-05", "question": "¿Cómo diseñar un Function Calling / Tool Calling determinístico con schema JSON en FastAPI?"},
-        {"id": "AI-06", "question": "¿Cómo mitigar el problema 'Lost in the Middle' en ventanas de contexto extensas?"},
-        {"id": "AI-07", "question": "¿Qué es la evaluación Spec-Driven (como ASSERT) y en qué supera a los benchmarks sintéticos estáticos?"},
-        {"id": "AI-08", "question": "¿Cómo implementar una memoria conversacional persistente con ventana deslizante y resumen de contexto?"},
-        {"id": "AI-09", "question": "Explica la arquitectura de un Agente Autónomo con bucle cerrado de verificación (Plan -> Act -> Verify)."},
-        {"id": "AI-10", "question": "¿Cómo proteger un endpoint de LLM contra ataques de Prompt Injection e Indirect Prompt Injection?"}
+        {
+          "id": "AI-01",
+          "question": "¿Cómo se calcula la similitud coseno entre dos vectores y por qué se deben normalizar los embeddings?",
+          "expected_keywords": ["similitud coseno", "dot product", "norma", "normalizar", "longitud"],
+          "ground_truth_summary": "cos(theta) = (A . B) / (||A|| * ||B||). Si los vectores ya están normalizados a norma unitaria (||A||=1), el cálculo se reduce a un producto punto puro altamente optimizado en CPU/GPU."
+        },
+        {
+          "id": "AI-02",
+          "question": "¿Cuál es la diferencia entre chunking por tamaño fijo versus chunking semántico por encabezados Markdown?",
+          "expected_keywords": ["chunking", "fijo", "semántico", "markdown", "contexto", "fragmentación"],
+          "ground_truth_summary": "Tamaño fijo corta arbitrariamente por tokens/caracteres perdiendo coherencia sintáctica; semántico divide respetando fronteras naturales (H1/H2/H3, párrafos completos) preservando la unidad lógica del significado."
+        },
+        {
+          "id": "AI-03",
+          "question": "¿Cómo implementar un Re-ranker (Cross-Encoder) después del retrieval vectorial para reducir falsos positivos?",
+          "expected_keywords": ["reranker", "cross-encoder", "bi-encoder", "re-rank", "score", "top-k"],
+          "ground_truth_summary": "1. El bi-encoder (vectorial) recupera top-K amplio (ej. 20). 2. El cross-encoder evalúa el par (query, chunk) conjuntamente con atención cruzada completa para reordenar y filtrar a top-3 preciso."
+        },
+        {
+          "id": "AI-04",
+          "question": "Explica qué es la cuantización de modelos LLM (GGUF, Q4_K_M vs FP16) y su impacto en VRAM y perplejidad.",
+          "expected_keywords": ["cuantización", "gguf", "q4_k_m", "fp16", "vram", "perplejidad"],
+          "ground_truth_summary": "Reduce la precisión de los pesos (de 16 bits float a 4 u 8 bits enteros). Reduce drásticamente el consumo de memoria VRAM/RAM (hasta un 70%) con degradación mínima de perplejidad."
+        },
+        {
+          "id": "AI-05",
+          "question": "¿Cómo diseñar un Function Calling / Tool Calling determinístico con schema JSON en FastAPI?",
+          "expected_keywords": ["pydantic", "json schema", "function calling", "tools", "type hints"],
+          "ground_truth_summary": "Definir modelos Pydantic con restricciones y descripciones detalladas, pasar el JSON Schema al LLM y validar la salida retornada mediante schema validation antes de ejecutar la función."
+        },
+        {
+          "id": "AI-06",
+          "question": "¿Cómo mitigar el problema 'Lost in the Middle' en ventanas de contexto extensas?",
+          "expected_keywords": ["lost in the middle", "posicionamiento", "top-k", "resumen", "reordering"],
+          "ground_truth_summary": "Reordenar chunks críticos al inicio y al final del prompt (efecto de primacía y recencia), usar reranking para mantener contextos compactos o aplicar compresión contextual."
+        },
+        {
+          "id": "AI-07",
+          "question": "¿Qué es la evaluación Spec-Driven (como ASSERT) y en qué supera a los benchmarks sintéticos estáticos?",
+          "expected_keywords": ["assert", "spec-driven", "calidad", "fidelidad", "esquema", "evaluación continua"],
+          "ground_truth_summary": "Evalúa respuestas frente a especificaciones duras de ingeniería (precisión de sintaxis, ausencia de alucinación, claridad pedagógica) en tiempo real con esquemas validados."
+        },
+        {
+          "id": "AI-08",
+          "question": "¿Cómo implementar una memoria conversacional persistente con ventana deslizante y resumen de contexto?",
+          "expected_keywords": ["memoria", "ventana deslizante", "sliding window", "resumen", "persistencia"],
+          "ground_truth_summary": "Mantener los últimos N mensajes en crudo para inmediatez, y condensar recursivamente los turnos antiguos en un resumen estructurado que se inyecta como contexto de sistema."
+        },
+        {
+          "id": "AI-09",
+          "question": "Explica la arquitectura de un Agente Autónomo con bucle cerrado de verificación (Plan -> Act -> Verify).",
+          "expected_keywords": ["agente", "bucle cerrado", "plan", "act", "verify", "autónomo"],
+          "ground_truth_summary": "El agente descompone el objetivo en pasos (Plan), ejecuta acciones con herramientas (Act), evalúa el resultado contra el estado esperado (Verify) y corrige en bucle si el resultado no cumple la condición de término."
+        },
+        {
+          "id": "AI-10",
+          "question": "¿Cómo proteger un endpoint de LLM contra ataques de Prompt Injection e Indirect Prompt Injection?",
+          "expected_keywords": ["prompt injection", "sanitización", "delimitadores", "system prompt", "guardrails"],
+          "ground_truth_summary": "Separar estrictamente datos de instrucciones usando delimitadores XML/Markdown claros, aplicar filtros de moderación/guardrails de entrada, y otorgar permisos mínimos (least privilege) a las herramientas ejecutables."
+        }
       ]
     }
   ]

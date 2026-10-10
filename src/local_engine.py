@@ -1,6 +1,9 @@
 import httpx
 from typing import Optional, Tuple
-from . import config
+try:
+    from . import config
+except (ImportError, ValueError):
+    import config
 
 class LocalEngine:
     """Cliente universal para motores locales (Ollama, LM Studio, vLLM, LocalAI)."""
