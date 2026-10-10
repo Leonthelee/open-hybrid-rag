@@ -1,13 +1,14 @@
 <div align="center">
 
 # 🌐 Open Hybrid RAG: A Programmer for Everyone
-### *High-Performance Local-First AI Orchestrator with Google Gemini Fallback & Spec-Driven Evaluation*
+### *Universal Local-First AI Orchestrator with Multi-Cloud Fallback & Spec-Driven Evaluation*
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg?logo=docker&logoColor=white)](https://www.docker.com/)
-[![Powered by Google Gemini](https://img.shields.io/badge/Cloud%20AI-Google%20Gemini-4285F4.svg?logo=google&logoColor=white)](https://ai.google.dev/)
+[![Local LLMs](https://img.shields.io/badge/Local%20AI-Ollama%20%7C%20vLLM%20%7C%20LMStudio-green.svg)](https://ollama.ai/)
+[![Multi-Cloud](https://img.shields.io/badge/Cloud%20AI-Gemini%20%7C%20OpenAI%20%7C%20Claude%20%7C%20DeepSeek-purple.svg)](#)
 [![ASSERT Spec-Driven](https://img.shields.io/badge/Evaluation-ASSERT%20Guarded-7952B3.svg)](https://github.com/responsibleai/ASSERT)
 
 <p align="center">
@@ -24,11 +25,11 @@
 <a name="english"></a>
 ## 🚀 What is Open Hybrid RAG?
 
-Most Retrieval-Augmented Generation (RAG) tutorials in the market are toys: they are either **100% cloud-dependent** (burning tokens and risking data leaks) or **100% local-only** (failing at complex architectural questions when local models hallucinate).
+Most Retrieval-Augmented Generation (RAG) implementations are either **100% cloud-dependent** (costly per token, high latency, data leakage risks) or **100% local-only** (failing at complex architectural problems when local models reach their context and capacity limits).
 
 **Open Hybrid RAG** solves this with a **Two-Tier Mathematical Gateway**:
-1. **Local-First (0ms Cloud / $0 Cost):** High-density vector embeddings (`qwen3-embedding:8b` / `bge-m3`) with instant hot-cache bypass and local LLM inference (Ollama, LM Studio, vLLM).
-2. **Invisible Cloud Escalation (Google Gemini 2.0 / 1.5):** When local certainty drops below the mathematical threshold ($\text{Score} < 0.75$), the gateway silently escalates to Google Gemini in the cloud.
+1. **Local-First (0ms Cloud / $0 Cost):** High-density vector embeddings with instant hot-cache bypass and local LLM inference (Ollama, LM Studio, vLLM, llama.cpp).
+2. **Universal Cloud Escalation:** When local certainty drops below the mathematical threshold ($\text{Score} < 0.75$), the gateway silently escalates to your cloud model of choice (**Google Gemini, OpenAI, Claude, DeepSeek, or Groq**).
 3. **Continuous Second-Brain Loop:** Every cloud resolution is automatically formatted into clean Markdown (Obsidian-compatible) and vector-indexed locally in real time. **The system never pays for the same answer twice.**
 4. **Spec-Driven Quality Guard (ASSERT):** Built-in automated scoring inspired by Microsoft Responsible AI ASSERT to measure technical accuracy, clarity, and routing precision.
 
@@ -38,13 +39,13 @@ Most Retrieval-Augmented Generation (RAG) tutorials in the market are toys: they
 
 ```mermaid
 flowchart TD
-    A["👤 User / Chat Client / n8n"] -->|"HTTP POST /api/v1/orchestrate"| B["🛑 FastAPI Traffic & Telemetry Gateway"]
+    A["👤 User / Chat Client / n8n / Webhook"] -->|"HTTP POST /api/v1/orchestrate"| B["🛑 FastAPI Traffic & Telemetry Gateway"]
     
     B --> C["📐 Vector Guard (Local Embeddings 4096-dim)"]
     
     C -->|"Score >= 0.85 (High Certainty)"| D["🟢 Local Vector Bypass (15ms / $0)"]
-    C -->|"0.65 <= Score < 0.85 (Medium)"| E["🟡 Local LLM (Ollama / LM Studio)"]
-    C -->|"Score < 0.65 (Knowledge Gap)"| F["☁️ Google Gemini Cloud Fallback"]
+    C -->|"0.65 <= Score < 0.85 (Medium)"| E["🟡 Local LLM (Ollama / LM Studio / vLLM)"]
+    C -->|"Score < 0.65 (Knowledge Gap)"| F["☁️ Cloud Fallback (Gemini / OpenAI / Claude / DeepSeek)"]
     
     E -->|"Detector: Uncertainty / Fallback"| F
     
@@ -65,8 +66,8 @@ flowchart TD
 | **Latency** | 800ms - 2500ms | **15ms** (Hot cache) / **300ms** (Local) |
 | **API Costs** | High ($ per token) | **~85% Cost Reduction** (Local First) |
 | **Data Privacy** | Everything leaves to cloud | **Local First**, private data stays local |
-| **Complex Tasks** | Model limit / hallucination | **Rescued by Google Gemini 2.0/1.5** |
-| **Learning Loop** | Static knowledge | **Self-improving second brain (Markdown)** |
+| **Model Freedom** | Vendor lock-in | **Agnostic (Ollama, vLLM, Gemini, OpenAI, Claude)** |
+| **Learning Loop** | Static knowledge base | **Self-improving second brain (Markdown)** |
 | **Quality Audit** | Vibe-checking / manual | **Automated ASSERT Spec-Driven Scoring** |
 
 ---
@@ -74,18 +75,18 @@ flowchart TD
 <a name="español"></a>
 ## 🇪🇸 Descripción en Español
 
-**Open Hybrid RAG** es un framework libre y universal diseñado para democratizar la Inteligencia Artificial híbrida de alto nivel. Permite que cualquier desarrollador o profesional levante en minutos un orquestador que combina la privacidad y velocidad de modelos locales en su hardware, con la potencia y razonamiento de **Google Gemini** en la nube.
+**Open Hybrid RAG** es un framework libre y universal diseñado para democratizar la Inteligencia Artificial híbrida de alto nivel. Permite que cualquier desarrollador o profesional levante en minutos un orquestador que combina la privacidad y velocidad de modelos locales en su hardware, con la potencia de modelos en la nube.
 
 ### Principios Fundamentales:
 - **Un Programador para Todos:** Diseñado con Clean Architecture para que cualquier área (TI, Salud, Educación, Finanzas, Legal) pueda construir asistentes con nivel de confianza de producción.
-- **Agnóstico y Universal:** Funciona con Ollama, LM Studio, vLLM o cualquier backend de LLM local.
+- **Agnóstico y Universal:** Funciona con Ollama, LM Studio, vLLM, y permite alternar en la nube entre Gemini, OpenAI, Claude, Groq o DeepSeek con un solo cambio en `.env`.
 - **Auto-Aprendizaje Continuo:** Cada duda resuelta en la nube se guarda en notas Markdown en tu Segundo Cerebro (Obsidian) y se indexa en memoria RAM para que la próxima vez sea 100% local.
 
 ---
 
 ## 🧪 50-Question Calibration Benchmark
 
-Included in this repository is a rigorous dataset of **50 Real-World Technical Assessment Questions** (`benchmark/50_technical_benchmark.json`) to stress-test and calibrate your RAG before moving to production:
+Included in this repository is a dataset of **50 Real-World Technical Assessment Questions** (`benchmark/50_technical_benchmark.json`) to stress-test and calibrate your RAG before moving to production:
 
 - **Category 1:** Networks, Protocols & Telecom (BGP, OSPF, MTU/MSS, IPsec, 802.1Q).
 - **Category 2:** Operating Systems, Linux & Windows Server (Systemd, Active Directory, Print Spooler, LVM).
@@ -111,15 +112,16 @@ cp .env.example .env
 
 ### 2. Configure Your `.env`
 ```env
-# Local Stack
+# Local Stack (Ollama / vLLM / LM Studio)
 LOCAL_LLM_URL=http://127.0.0.1:11434/api/chat
 LOCAL_LLM_MODEL=qwen2.5:3b
 LOCAL_EMBED_URL=http://127.0.0.1:11434/api/embeddings
 LOCAL_EMBED_MODEL=qwen3-embedding:8b
 
-# Google Cloud AI Fallback
-GEMINI_API_KEY=your_actual_gemini_api_key_here
-GEMINI_MODEL=gemini-2.0-flash
+# Cloud Fallback (Choose: gemini | openai | anthropic | groq | deepseek)
+CLOUD_PROVIDER=gemini
+CLOUD_API_KEY=your_actual_api_key_here
+CLOUD_MODEL=gemini-2.0-flash
 ```
 
 ### 3. Run with Docker Compose
@@ -169,11 +171,11 @@ curl -X POST http://localhost:8000/api/v1/orchestrate \
 
 ---
 
-## 🤝 Credits & Acknowledgments
+## 🤝 Open Source Ecosystem & Acknowledgments
 
-- **Google Cloud & DeepMind Team:** For powering the high-capacity cloud fallback via the **Google Gemini** models and developer APIs.
-- **Open-Source Local AI Community:** Ollama, Qwen Team (Alibaba Cloud), vLLM, and LiteLLM.
-- **Microsoft Responsible AI Team:** For the **ASSERT** evaluation methodology.
+- **Local AI Foundations:** Ollama, Qwen Team (Alibaba Cloud), vLLM, llama.cpp, and LM Studio.
+- **Cloud Intelligence:** Google Gemini, OpenAI, Anthropic, DeepSeek, and Groq.
+- **Evaluation Engineering:** Microsoft Responsible AI Team for the **ASSERT** methodology.
 
 ---
 
