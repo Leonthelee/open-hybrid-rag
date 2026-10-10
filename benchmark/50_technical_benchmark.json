@@ -1,0 +1,83 @@
+{
+  "title": "50-Question Technical Confidence & RAG Calibration Benchmark",
+  "author_profile": "Universal Engineering Assessment Dataset",
+  "version": "1.0.0",
+  "description": "50 preguntas técnicas rigurosas de la vida real para evaluar y calibrar la precisión de cualquier agente RAG antes de salir a producción.",
+  "categories": [
+    {
+      "category": "1. Redes, Protocolos & Telecomunicaciones",
+      "questions": [
+        {"id": "NET-01", "question": "¿Cómo solucionar un problema de BGP flapping en un router de borde y qué parámetros ajustar?"},
+        {"id": "NET-02", "question": "¿Cuál es la diferencia exacta entre MTU y MSS y cómo diagnosticar un agujero negro de paquetes por 'Don't Fragment'?"},
+        {"id": "NET-03", "question": "Configura una VLAN troncal 802.1Q en Linux usando iproute2 o NetworkManager."},
+        {"id": "NET-04", "question": "¿Cómo depurar un túnel IPsec IKEv2 que falla en la Fase 2 (Quick Mode / SA mismatch)?"},
+        {"id": "NET-05", "question": "Explica la diferencia mecánica entre STP, RSTP y MSTP en switches de acceso."},
+        {"id": "NET-06", "question": "¿Cómo rastrear una tormenta de broadcast (Broadcast Storm) en una red LAN corporativa?"},
+        {"id": "NET-07", "question": "¿Cómo configurar OSPF multi-área con autenticación MD5 entre dos routers?"},
+        {"id": "NET-08", "question": "¿Qué comando usar para capturar tráfico DNS en interfaz eth0 filtrando solo respuestas SERVFAIL con tcpdump?"},
+        {"id": "NET-09", "question": "Calcula la máscara de red y host usable para dividir 10.50.0.0/16 en 8 subredes iguales."},
+        {"id": "NET-10", "question": "¿Cómo configurar un proxy inverso Nginx con WebSocket support y headers X-Forwarded-For?"}
+      ]
+    },
+    {
+      "category": "2. Sistemas Operativos, Linux & Windows Server",
+      "questions": [
+        {"id": "OS-01", "question": "¿Cómo reiniciar de forma forzada el servicio Print Spooler en Windows Server bloqueado por cola corrupta?"},
+        {"id": "OS-02", "question": "¿Cómo desbloquear una cuenta de Active Directory y resetear password usando PowerShell?"},
+        {"id": "OS-03", "question": "¿Cómo diagnosticar un Kernel Panic en Linux analizando /var/crash o dmesg?"},
+        {"id": "OS-04", "question": "Explica cómo extender un volumen LVM online sin desmontar el filesystem ext4/xfs."},
+        {"id": "OS-05", "question": "¿Cómo configurar un servicio systemd con reinicio automático (Restart=always) y límites de memoria (MemoryMax)?"},
+        {"id": "OS-06", "question": "¿Cómo detectar qué proceso tiene tomado un puerto TCP específico en Linux y en Windows?"},
+        {"id": "OS-07", "question": "Configura permisos POSIX con ACLs (setfacl) para que un grupo específico tenga solo lectura recursiva."},
+        {"id": "OS-08", "question": "¿Cómo solucionar un error de arranque 'GRUB rescue' tras una falla de tabla de particiones?"},
+        {"id": "OS-09", "question": "¿Cómo auditar intentos fallidos de inicio de sesión SSH en /var/log/auth.log con journalctl?"},
+        {"id": "OS-10", "question": "¿Cómo configurar Rotación de Logs (logrotate) para evitar saturación de disco /var/log?"}
+      ]
+    },
+    {
+      "category": "3. Contenedores, Docker & Kubernetes",
+      "questions": [
+        {"id": "DOCK-01", "question": "¿Por qué un contenedor Docker recibe señal SIGKILL (Exit code 137 / OOMKilled) y cómo mitigarlo?"},
+        {"id": "DOCK-02", "question": "Escribe un Dockerfile multi-stage build en Python optimizado para producción sin build-tools en la imagen final."},
+        {"id": "DOCK-03", "question": "¿Cómo conectar un contenedor en una red bridge personalizada con un servicio en el host del host?"},
+        {"id": "DOCK-04", "question": "¿Cuál es la diferencia entre EXPOSE en Dockerfile y publicar puertos con -p 8080:80?"},
+        {"id": "DOCK-05", "question": "Configura un docker-compose.yml con healthcheck para PostgreSQL y condición service_healthy para la API."},
+        {"id": "DOCK-06", "question": "¿Cómo depurar un pod en Kubernetes en estado CrashLoopBackOff?"},
+        {"id": "DOCK-07", "question": "Explica la diferencia entre un Deployment, un StatefulSet y un DaemonSet en Kubernetes."},
+        {"id": "DOCK-08", "question": "¿Cómo limpiar espacio en disco consumido por volúmenes huérfanos y capas dangling en Docker?"},
+        {"id": "DOCK-09", "question": "Configura un ingress controller en K8s con TLS termination automático vía cert-manager."},
+        {"id": "DOCK-10", "question": "¿Cómo montar un secreto de forma segura dentro de un contenedor sin exponerlo en las variables de entorno?"}
+      ]
+    },
+    {
+      "category": "4. Bases de Datos & Arquitectura de Backend",
+      "questions": [
+        {"id": "DB-01", "question": "¿Por qué una consulta SQL hace un Sequential Scan en lugar de usar un índice B-Tree existente?"},
+        {"id": "DB-02", "question": "¿Cómo diagnosticar y resolver un Deadlock en PostgreSQL analizando pg_stat_activity?"},
+        {"id": "DB-03", "question": "Explica la diferencia entre aislamiento READ COMMITTED y REPEATABLE READ en transacciones ACID."},
+        {"id": "DB-04", "question": "¿Cómo optimizar una consulta pesada con JOINs múltiples usando EXPLAIN ANALYZE?"},
+        {"id": "DB-05", "question": "Escribe una estrategia de caché 'Cache-Aside' con Redis para una API REST de alto tráfico."},
+        {"id": "DB-06", "question": "¿Cómo configurar replicación Streaming (Primary-Standby) en PostgreSQL 15+?"},
+        {"id": "DB-07", "question": "¿Qué problemas de concurrencia resuelve el Bloqueo Pesimista (SELECT ... FOR UPDATE)?"},
+        {"id": "DB-08", "question": "¿Cómo particionar por rangos de fecha una tabla de auditoría con millones de registros en SQL?"},
+        {"id": "DB-09", "question": "Explica cuándo usar una base de datos documental (NoSQL) versus una relacional en microservicios."},
+        {"id": "DB-10", "question": "¿Cómo ejecutar un rollback seguro de migraciones de base de datos en un pipeline CI/CD?"}
+      ]
+    },
+    {
+      "category": "5. Inteligencia Artificial, RAG & LLMOps",
+      "questions": [
+        {"id": "AI-01", "question": "¿Cómo se calcula la similitud coseno entre dos vectores y por qué se deben normalizar los embeddings?"},
+        {"id": "AI-02", "question": "¿Cuál es la diferencia entre chunking por tamaño fijo versus chunking semántico por encabezados Markdown?"},
+        {"id": "AI-03", "question": "¿Cómo implementar un Re-ranker (Cross-Encoder) después del retrieval vectorial para reducir falsos positivos?"},
+        {"id": "AI-04", "question": "Explica qué es la cuantización de modelos LLM (GGUF, Q4_K_M vs FP16) y su impacto en VRAM y perplejidad."},
+        {"id": "AI-05", "question": "¿Cómo diseñar un Function Calling / Tool Calling determinístico con schema JSON en FastAPI?"},
+        {"id": "AI-06", "question": "¿Cómo mitigar el problema 'Lost in the Middle' en ventanas de contexto extensas?"},
+        {"id": "AI-07", "question": "¿Qué es la evaluación Spec-Driven (como ASSERT) y en qué supera a los benchmarks sintéticos estáticos?"},
+        {"id": "AI-08", "question": "¿Cómo implementar una memoria conversacional persistente con ventana deslizante y resumen de contexto?"},
+        {"id": "AI-09", "question": "Explica la arquitectura de un Agente Autónomo con bucle cerrado de verificación (Plan -> Act -> Verify)."},
+        {"id": "AI-10", "question": "¿Cómo proteger un endpoint de LLM contra ataques de Prompt Injection e Indirect Prompt Injection?"}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  open-hybrid-rag:
+    build: .
+    container_name: open_hybrid_rag_gateway
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - HOST=0.0.0.0
+      - LOCAL_LLM_URL=http://host.docker.internal:11434/api/chat
+      - LOCAL_LLM_MODEL=qwen2.5:3b
+      - LOCAL_EMBED_URL=http://host.docker.internal:11434/api/embeddings
+      - LOCAL_EMBED_MODEL=qwen3-embedding:8b
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_MODEL=gemini-2.0-flash
+      - SECOND_BRAIN_PATH=/app/knowledge_base
+    volumes:
+      - ./knowledge_base:/app/knowledge_base
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

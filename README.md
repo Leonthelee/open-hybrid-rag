@@ -1,0 +1,182 @@
+<div align="center">
+
+# 🌐 Open Hybrid RAG: A Programmer for Everyone
+### *High-Performance Local-First AI Orchestrator with Google Gemini Fallback & Spec-Driven Evaluation*
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg?logo=docker&logoColor=white)](https://www.docker.com/)
+[![Powered by Google Gemini](https://img.shields.io/badge/Cloud%20AI-Google%20Gemini-4285F4.svg?logo=google&logoColor=white)](https://ai.google.dev/)
+[![ASSERT Spec-Driven](https://img.shields.io/badge/Evaluation-ASSERT%20Guarded-7952B3.svg)](https://github.com/responsibleai/ASSERT)
+
+<p align="center">
+  <b>Democratizing Production-Grade Hybrid AI for every professional, team, and organization.</b><br>
+  <i>Fast, Private, Self-Learning, and Grounded in Mathematical Certainty.</i>
+</p>
+
+[English](#english) • [Español](#español) • [Architecture](#-architecture) • [50-Question Benchmark](#-50-question-calibration-benchmark) • [Quickstart](#-quickstart)
+
+---
+
+</div>
+
+<a name="english"></a>
+## 🚀 What is Open Hybrid RAG?
+
+Most Retrieval-Augmented Generation (RAG) tutorials in the market are toys: they are either **100% cloud-dependent** (burning tokens and risking data leaks) or **100% local-only** (failing at complex architectural questions when local models hallucinate).
+
+**Open Hybrid RAG** solves this with a **Two-Tier Mathematical Gateway**:
+1. **Local-First (0ms Cloud / $0 Cost):** High-density vector embeddings (`qwen3-embedding:8b` / `bge-m3`) with instant hot-cache bypass and local LLM inference (Ollama, LM Studio, vLLM).
+2. **Invisible Cloud Escalation (Google Gemini 2.0 / 1.5):** When local certainty drops below the mathematical threshold ($\text{Score} < 0.75$), the gateway silently escalates to Google Gemini in the cloud.
+3. **Continuous Second-Brain Loop:** Every cloud resolution is automatically formatted into clean Markdown (Obsidian-compatible) and vector-indexed locally in real time. **The system never pays for the same answer twice.**
+4. **Spec-Driven Quality Guard (ASSERT):** Built-in automated scoring inspired by Microsoft Responsible AI ASSERT to measure technical accuracy, clarity, and routing precision.
+
+---
+
+## 🏛️ Architecture
+
+```mermaid
+flowchart TD
+    A["👤 User / Chat Client / n8n"] -->|"HTTP POST /api/v1/orchestrate"| B["🛑 FastAPI Traffic & Telemetry Gateway"]
+    
+    B --> C["📐 Vector Guard (Local Embeddings 4096-dim)"]
+    
+    C -->|"Score >= 0.85 (High Certainty)"| D["🟢 Local Vector Bypass (15ms / $0)"]
+    C -->|"0.65 <= Score < 0.85 (Medium)"| E["🟡 Local LLM (Ollama / LM Studio)"]
+    C -->|"Score < 0.65 (Knowledge Gap)"| F["☁️ Google Gemini Cloud Fallback"]
+    
+    E -->|"Detector: Uncertainty / Fallback"| F
+    
+    D --> G["💾 Second Brain Sync (Markdown / Obsidian)"]
+    E --> G
+    F -->|"Auto-Learn & Vectorize"| G
+    
+    G --> H["⚖️ ASSERT Spec-Driven Quality Evaluator"]
+    H --> I["💬 Enriched Response with Telemetry & Audit"]
+```
+
+---
+
+## ✨ Core Highlights
+
+| Feature | Traditional RAG | Open Hybrid RAG |
+|---|---|---|
+| **Latency** | 800ms - 2500ms | **15ms** (Hot cache) / **300ms** (Local) |
+| **API Costs** | High ($ per token) | **~85% Cost Reduction** (Local First) |
+| **Data Privacy** | Everything leaves to cloud | **Local First**, private data stays local |
+| **Complex Tasks** | Model limit / hallucination | **Rescued by Google Gemini 2.0/1.5** |
+| **Learning Loop** | Static knowledge | **Self-improving second brain (Markdown)** |
+| **Quality Audit** | Vibe-checking / manual | **Automated ASSERT Spec-Driven Scoring** |
+
+---
+
+<a name="español"></a>
+## 🇪🇸 Descripción en Español
+
+**Open Hybrid RAG** es un framework libre y universal diseñado para democratizar la Inteligencia Artificial híbrida de alto nivel. Permite que cualquier desarrollador o profesional levante en minutos un orquestador que combina la privacidad y velocidad de modelos locales en su hardware, con la potencia y razonamiento de **Google Gemini** en la nube.
+
+### Principios Fundamentales:
+- **Un Programador para Todos:** Diseñado con Clean Architecture para que cualquier área (TI, Salud, Educación, Finanzas, Legal) pueda construir asistentes con nivel de confianza de producción.
+- **Agnóstico y Universal:** Funciona con Ollama, LM Studio, vLLM o cualquier backend de LLM local.
+- **Auto-Aprendizaje Continuo:** Cada duda resuelta en la nube se guarda en notas Markdown en tu Segundo Cerebro (Obsidian) y se indexa en memoria RAM para que la próxima vez sea 100% local.
+
+---
+
+## 🧪 50-Question Calibration Benchmark
+
+Included in this repository is a rigorous dataset of **50 Real-World Technical Assessment Questions** (`benchmark/50_technical_benchmark.json`) to stress-test and calibrate your RAG before moving to production:
+
+- **Category 1:** Networks, Protocols & Telecom (BGP, OSPF, MTU/MSS, IPsec, 802.1Q).
+- **Category 2:** Operating Systems, Linux & Windows Server (Systemd, Active Directory, Print Spooler, LVM).
+- **Category 3:** Containers, Docker & Kubernetes (Multi-stage builds, OOMKilled, Ingress, Pod debugging).
+- **Category 4:** Databases & Backend Architecture (ACID, Deadlocks, B-Tree index optimization, Cache-Aside).
+- **Category 5:** Artificial Intelligence, RAG & LLMOps (Cosine similarity, Chunking, Re-ranking, Quantization, ASSERT).
+
+Run the full benchmark in one command:
+```bash
+python benchmark/run_benchmark.py
+```
+
+---
+
+## ⚡ Quickstart
+
+### 1. Clone & Configure
+```bash
+git clone https://github.com/your-username/open-hybrid-rag.git
+cd open-hybrid-rag
+cp .env.example .env
+```
+
+### 2. Configure Your `.env`
+```env
+# Local Stack
+LOCAL_LLM_URL=http://127.0.0.1:11434/api/chat
+LOCAL_LLM_MODEL=qwen2.5:3b
+LOCAL_EMBED_URL=http://127.0.0.1:11434/api/embeddings
+LOCAL_EMBED_MODEL=qwen3-embedding:8b
+
+# Google Cloud AI Fallback
+GEMINI_API_KEY=your_actual_gemini_api_key_here
+GEMINI_MODEL=gemini-2.0-flash
+```
+
+### 3. Run with Docker Compose
+```bash
+docker compose up -d
+```
+The gateway is now running at `http://localhost:8000`.
+
+---
+
+## 📡 API Usage
+
+### Orchestrated Query (`POST /api/v1/orchestrate`)
+```bash
+curl -X POST http://localhost:8000/api/v1/orchestrate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "How to resolve BGP flapping on an edge router?",
+    "audit_assert": true
+  }'
+```
+
+#### JSON Response:
+```json
+{
+  "request_id": "req-9b82f1c4",
+  "query": "How to resolve BGP flapping on an edge router?",
+  "route_taken": "RESOLVE_LOCAL_HIGH",
+  "source": "local_vector_cache_bypass",
+  "similarity_score": 0.9412,
+  "answer": "To mitigate BGP flapping, configure BGP route dampening and adjust keepalive/hold-time timers...",
+  "second_brain_doc_id": "KB-20261010-154500",
+  "telemetry": {
+    "total_latency_ms": 18.4,
+    "escalated_to_cloud": false
+  },
+  "assert_audit": {
+    "technical_score": 9,
+    "clarity_score": 10,
+    "route_score": 10,
+    "overall_score": 9.6,
+    "passed": true,
+    "feedback": "Clear, technically accurate command steps with zero hallucinations."
+  }
+}
+```
+
+---
+
+## 🤝 Credits & Acknowledgments
+
+- **Google Cloud & DeepMind Team:** For powering the high-capacity cloud fallback via the **Google Gemini** models and developer APIs.
+- **Open-Source Local AI Community:** Ollama, Qwen Team (Alibaba Cloud), vLLM, and LiteLLM.
+- **Microsoft Responsible AI Team:** For the **ASSERT** evaluation methodology.
+
+---
+
+## 📄 License
+
+This project is licensed under the **MIT License** — feel free to use, modify, and distribute in personal, academic, or commercial projects.
