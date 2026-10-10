@@ -120,34 +120,92 @@ python benchmark/run_benchmark.py
 
 ---
 
-## ⚡ Quickstart
+## ⚡ Step-by-Step Installation Guide (Guía Paso a Paso)
 
-### 1. Clone & Configure
+You can run Open Hybrid RAG in **under 2 minutes** using any of the following methods:
+
+---
+
+### 📋 Prerequisites (Prerrequisitos)
+
+1. **Local LLM Engine (Ollama / LM Studio / vLLM):**
+   - Download and install [Ollama](https://ollama.ai/).
+   - Pull the recommended lightweight models in your terminal:
+     ```bash
+     ollama pull qwen2.5:3b
+     ollama pull qwen3-embedding:8b
+     ```
+     *(Or use `ollama pull nomic-embed-text` if you have less than 8GB RAM).*
+
+---
+
+### 🚀 Method 1: 1-Click Launcher (Windows / Linux / macOS)
+
+* **Windows:** Simply double-click `Iniciar_Gateway.bat` (it automatically creates the virtual environment, installs dependencies, and launches the server).
+* **Linux / macOS:**
+  ```bash
+  chmod +x start_gateway.sh
+  ./start_gateway.sh
+  ```
+
+---
+
+### 🐍 Method 2: Standard Python (No Docker required)
+
 ```bash
+# 1. Clone the repository
+git clone https://github.com/your-username/open-hybrid-rag.git
+cd open-hybrid-rag
+
+# 2. Create and activate a virtual environment
+python -m venv venv
+# Windows:
+.\venv\Scripts\activate
+# Linux / macOS:
+source venv/bin/activate
+
+# 3. Install lightweight dependencies (FastAPI, NumPy, HTTPX)
+pip install -r requirements.txt
+
+# 4. Copy and configure your .env
+cp .env.example .env
+
+# 5. Start the Gateway
+python -m src.main
+```
+
+---
+
+### 🐳 Method 3: Docker Compose
+
+```bash
+# 1. Clone and configure .env
 git clone https://github.com/your-username/open-hybrid-rag.git
 cd open-hybrid-rag
 cp .env.example .env
-```
 
-### 2. Configure Your `.env`
-```env
-# Local Stack (Ollama / vLLM / LM Studio)
-LOCAL_LLM_URL=http://127.0.0.1:11434/api/chat
-LOCAL_LLM_MODEL=qwen2.5:3b
-LOCAL_EMBED_URL=http://127.0.0.1:11434/api/embeddings
-LOCAL_EMBED_MODEL=qwen3-embedding:8b
-
-# Cloud Fallback (Choose: gemini | openai | anthropic | groq | deepseek)
-CLOUD_PROVIDER=gemini
-CLOUD_API_KEY=your_actual_api_key_here
-CLOUD_MODEL=gemini-2.0-flash
-```
-
-### 3. Run with Docker Compose
-```bash
+# 2. Launch with Docker Compose
 docker compose up -d
 ```
-The gateway is now running at `http://localhost:8000`.
+
+---
+
+### ✅ Verify Installation
+Open your browser or run curl to verify that the gateway is live:
+```bash
+curl http://localhost:8000/
+```
+Expected output:
+```json
+{
+  "status": "online",
+  "service": "Open Hybrid RAG Gateway",
+  "local_llm": "qwen2.5:3b",
+  "local_embed": "qwen3-embedding:8b",
+  "cloud_llm": "gemini-2.0-flash",
+  "indexed_vectors": 0
+}
+```
 
 ---
 
