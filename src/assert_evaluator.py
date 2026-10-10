@@ -1,6 +1,6 @@
 import httpx
 import json
-from typing import Optional
+from typing import Optional, Dict, Any
 from . import config
 
 PROMPT_ASSERT_SYSTEM = """Eres el Árbitro Evaluador ASSERT. Tu misión es calificar una respuesta técnica frente a 3 especificaciones duras:
@@ -9,7 +9,7 @@ PROMPT_ASSERT_SYSTEM = """Eres el Árbitro Evaluador ASSERT. Tu misión es calif
 2. [Claridad Pedagógica]: ¿Es directa, estructurada y fácil de aplicar? (1-10)
 3. [Adecuación de Ruta]: ¿Fue acertada la decisión entre Local vs Cloud? (1-10)
 
-Responde EXCLUSIVAMENTE en formato JSON:
+Responde EXCLUSIVAMENTE en formato JSON válido con este esquema exacto:
 {
   "technical_score": 9,
   "clarity_score": 9,
@@ -21,13 +21,13 @@ Responde EXCLUSIVAMENTE en formato JSON:
 """
 
 class AssertEvaluator:
-    """Evaluador Spec-Driven inspirado en Microsoft Responsible AI ASSERT."""
+    """Evaluador Spec-Driven inspirado en Microsoft Responsible AI ASSERT con validación de esquema."""
     def __init__(self, judge_url: str = config.LOCAL_LLM_URL, judge_model: str = config.LOCAL_LLM_MODEL):
         self.judge_url = judge_url
         self.judge_model = judge_model
 
-    async def evaluate(self, query: str, answer: str, source: str) -> dict:
-        """Evalúa la interacción y retorna métricas de calidad."""
+    async def evaluate(self, query: str, answer: str, source: str) -> Dict[str, Any]:
+        """Evalúa la interacción y retorna métricas reales o estado explícito de indisponibilidad."""
         payload = f"""
 [CASO DE PRUEBA]
 - Consulta: {query}
@@ -49,17 +49,23 @@ class AssertEvaluator:
                     }
                 )
                 if r.status_code == 200:
-                    txt = r.json()["message"]["content"]
-                    return json.loads(txt)
-            except Exception:
-                pass
+                    raw_txt = r.json()["message"]["content"]
+                    data = json.loads(raw_txt)
+                    # Validar esquema
+                    if "overall_score" in data and "passed" in data:
+                        data["evaluation_status"] = "completed"
+                        return data
+            except Exception as e:
+                return {
+                    "evaluation_status": "unavailable",
+                    "passed": None,
+                    "overall_score": None,
+                    "feedback": f"El juez ASSERT no estuvo disponible para calificar: {str(e)}"
+                }
 
-        # Fallback determinístico
         return {
-            "technical_score": 8,
-            "clarity_score": 9,
-            "route_score": 9,
-            "overall_score": 8.7,
-            "passed": True,
-            "feedback": "Evaluación generada mediante fallback determinístico."
+            "evaluation_status": "unavailable",
+            "passed": None,
+            "overall_score": None,
+            "feedback": "El juez ASSERT devolvió una respuesta no válida."
         }

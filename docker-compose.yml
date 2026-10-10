@@ -7,15 +7,19 @@ services:
     restart: unless-stopped
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     environment:
       - PORT=8000
       - HOST=0.0.0.0
-      - LOCAL_LLM_URL=http://host.docker.internal:11434/api/chat
-      - LOCAL_LLM_MODEL=qwen2.5:3b
-      - LOCAL_EMBED_URL=http://host.docker.internal:11434/api/embeddings
-      - LOCAL_EMBED_MODEL=qwen3-embedding:8b
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - GEMINI_MODEL=gemini-2.0-flash
+      - LOCAL_LLM_URL=${LOCAL_LLM_URL:-http://host.docker.internal:11434/api/chat}
+      - LOCAL_LLM_MODEL=${LOCAL_LLM_MODEL:-qwen2.5:3b}
+      - LOCAL_EMBED_URL=${LOCAL_EMBED_URL:-http://host.docker.internal:11434/api/embeddings}
+      - LOCAL_EMBED_MODEL=${LOCAL_EMBED_MODEL:-qwen3-embedding:8b}
+      - CLOUD_PROVIDER=${CLOUD_PROVIDER:-gemini}
+      - CLOUD_API_KEY=${CLOUD_API_KEY:-}
+      - CLOUD_MODEL=${CLOUD_MODEL:-gemini-2.0-flash}
+      - PRIVACY_MODE=${PRIVACY_MODE:-hybrid}
       - SECOND_BRAIN_PATH=/app/knowledge_base
     volumes:
       - ./knowledge_base:/app/knowledge_base

@@ -1,26 +1,30 @@
 import httpx
-from typing import Optional
+from typing import Optional, Tuple
 from . import config
 
+class CloudBridgeError(Exception):
+    """Excepción para errores de conectividad o autenticación con proveedores cloud."""
+    pass
+
 class CloudBridge:
-    """Puente Universal de Escalamiento Multi-Cloud (Gemini, OpenAI, Claude, Groq, DeepSeek)."""
+    """Puente Universal de Escalamiento Multi-Cloud con Manejo Estricto de Excepciones."""
     def __init__(
         self,
         provider: str = config.CLOUD_PROVIDER,
         api_key: str = config.CLOUD_API_KEY,
         model: str = config.CLOUD_MODEL
     ):
-        self.provider = provider.lower()
+        self.provider = provider.lower().strip()
         self.api_key = api_key
         self.model = model
 
-    async def generate(self, prompt: str, system_instruction: Optional[str] = None) -> str:
-        """Enruta la petición al proveedor configurado."""
+    async def generate(self, prompt: str, system_instruction: Optional[str] = None) -> Tuple[bool, str]:
+        """
+        Invocación a la nube.
+        Retorna: (success: bool, response_or_error: str)
+        """
         if not self.api_key:
-            return (
-                "⚠️ [Cloud Fallback Inactivo]: Configura CLOUD_API_KEY en tu archivo .env "
-                "para habilitar el rescate en la nube cuando la base local no tenga la respuesta."
-            )
+            return False, "CLOUD_API_KEY no está configurada en las variables de entorno."
 
         if self.provider == "gemini":
             return await self._call_gemini(prompt, system_instruction)
@@ -29,9 +33,9 @@ class CloudBridge:
         elif self.provider == "anthropic":
             return await self._call_anthropic(prompt, system_instruction)
         else:
-            return f"Error: Proveedor de nube '{self.provider}' no soportado (usa: gemini, openai, anthropic, groq, deepseek)."
+            return False, f"Proveedor cloud '{self.provider}' no reconocido."
 
-    async def _call_gemini(self, prompt: str, system_instruction: Optional[str]) -> str:
+    async def _call_gemini(self, prompt: str, system_instruction: Optional[str]) -> Tuple[bool, str]:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent?key={self.api_key}"
         full_prompt = f"[Sistema]: {system_instruction}\n\n[Consulta]:\n{prompt}" if system_instruction else prompt
         payload = {"contents": [{"parts": [{"text": full_prompt}]}]}
@@ -41,12 +45,13 @@ class CloudBridge:
                 resp = await client.post(url, json=payload)
                 if resp.status_code == 200:
                     data = resp.json()
-                    return data["candidates"][0]["content"]["parts"][0]["text"]
-                return f"Error Gemini ({resp.status_code}): {resp.text}"
+                    text = data["candidates"][0]["content"]["parts"][0]["text"]
+                    return True, text
+                return False, f"HTTP_{resp.status_code}: {resp.text}"
             except Exception as e:
-                return f"Excepción conectando con Gemini: {e}"
+                return False, f"NETWORK_ERROR: {str(e)}"
 
-    async def _call_openai_compatible(self, prompt: str, system_instruction: Optional[str]) -> str:
+    async def _call_openai_compatible(self, prompt: str, system_instruction: Optional[str]) -> Tuple[bool, str]:
         url_map = {
             "openai": "https://api.openai.com/v1/chat/completions",
             "groq": "https://api.groq.com/openai/v1/chat/completions",
@@ -70,12 +75,13 @@ class CloudBridge:
                 resp = await client.post(url, json=payload)
                 if resp.status_code == 200:
                     data = resp.json()
-                    return data["choices"][0]["message"]["content"]
-                return f"Error {self.provider.upper()} ({resp.status_code}): {resp.text}"
+                    text = data["choices"][0]["message"]["content"]
+                    return True, text
+                return False, f"HTTP_{resp.status_code}: {resp.text}"
             except Exception as e:
-                return f"Excepción conectando con {self.provider}: {e}"
+                return False, f"NETWORK_ERROR: {str(e)}"
 
-    async def _call_anthropic(self, prompt: str, system_instruction: Optional[str]) -> str:
+    async def _call_anthropic(self, prompt: str, system_instruction: Optional[str]) -> Tuple[bool, str]:
         url = "https://api.anthropic.com/v1/messages"
         headers = {
             "x-api-key": self.api_key,
@@ -95,7 +101,8 @@ class CloudBridge:
                 resp = await client.post(url, json=payload)
                 if resp.status_code == 200:
                     data = resp.json()
-                    return data["content"][0]["text"]
-                return f"Error Claude ({resp.status_code}): {resp.text}"
+                    text = data["content"][0]["text"]
+                    return True, text
+                return False, f"HTTP_{resp.status_code}: {resp.text}"
             except Exception as e:
-                return f"Excepción conectando con Claude: {e}"
+                return False, f"NETWORK_ERROR: {str(e)}"
