@@ -1,0 +1,27 @@
+# Virtual Environments
+venv/
+.venv/
+env/
+
+# Python Cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Local Environment Variables
+.env
+
+# Local Storage & Second Brain
+knowledge_base/
+
+# Local IDE & AI Harness caches
+.gemini/
+.cursor/
+.claude/
+.codex/
+.opencode/
+.copilot/
+
+# OS Specific
+.DS_Store
+Thumbs.db
