@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
 Sincroniza en caliente todas las notas Markdown de una carpeta local al Open Hybrid RAG Gateway.
-Soporta autenticación X-API-Key, validación de códigos HTTP y slugs de ruta jerárquica para evitar colisiones.
+Soporta autenticación X-API-Key, remoción de frontmatter YAML e indexación incremental por hash.
 #>
 param (
     [string]$FolderPath = "./knowledge_base",
@@ -10,7 +10,7 @@ param (
 )
 
 Write-Host "============================================================" -ForegroundColor Cyan
-Write-Host "🧠 Open Hybrid RAG - Hot Knowledge Sync" -ForegroundColor Cyan
+Write-Host "🧠 Open Hybrid RAG - Incremental Knowledge Sync" -ForegroundColor Cyan
 Write-Host "📂 Origen:  $FolderPath" -ForegroundColor Cyan
 Write-Host "🌐 Destino: $GatewayUrl" -ForegroundColor Cyan
 Write-Host "============================================================" -ForegroundColor Cyan
@@ -21,28 +21,40 @@ if (-not (Test-Path $FolderPath)) {
 }
 
 $files = Get-ChildItem -Path $FolderPath -Filter "*.md" -Recurse
-Write-Host "📦 Encontradas $($files.Count) notas Markdown para indexar..." -ForegroundColor Yellow
+Write-Host "📦 Encontradas $($files.Count) notas Markdown para procesar..." -ForegroundColor Yellow
 
 $indexed = 0
 $errors = 0
-
 $resolvedBase = (Resolve-Path $FolderPath).Path
 
 foreach ($file in $files) {
-    $content = Get-Content -Path $file.FullName -Raw -Encoding UTF8
-    if ([string]::IsNullOrWhiteSpace($content)) { continue }
+    $rawContent = Get-Content -Path $file.FullName -Raw -Encoding UTF8
+    if ([string]::IsNullOrWhiteSpace($rawContent)) { continue }
 
-    # Calcular ruta relativa y slug único para evitar colisiones entre subcarpetas
+    # Eliminar frontmatter YAML si está presente (delimitado por --- inicial)
+    $cleanContent = $rawContent
+    if ($cleanContent -match "(?s)^---\r?\n.*?\r?\n---\r?\n(.*)$") {
+        $cleanContent = $matches[1]
+    }
+    $cleanContent = $cleanContent.Trim()
+    if ([string]::IsNullOrWhiteSpace($cleanContent)) { continue }
+
+    # Calcular hash SHA-256 del contenido limpio
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($cleanContent)
+    $hash = -join ($sha.ComputeHash($bytes) | ForEach-Object { "{0:x2}" -f $_ })
+
     $relPath = $file.FullName.Substring($resolvedBase.Length).TrimStart("\", "/")
     $docId = ($relPath -replace '[^a-zA-Z0-9._-]', '_') -replace '\.md$', ''
 
     $body = @{
         doc_id = $docId
-        text = $content
+        text = $cleanContent
         doc_type = "document"
         metadata = @{
             relative_path = $relPath
             filename = $file.Name
+            content_hash = $hash
             updated_at = (Get-Date).ToString("o")
         }
     } | ConvertTo-Json -Depth 5

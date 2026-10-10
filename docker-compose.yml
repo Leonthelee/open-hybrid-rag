@@ -1,12 +1,9 @@
-version: '3.8'
-
 services:
   open-hybrid-rag:
     build: .
     container_name: open_hybrid_rag_gateway
     restart: unless-stopped
     ports:
-      # Bound to localhost by default for security isolation
       - "127.0.0.1:8000:8000"
     env_file:
       - .env
@@ -27,3 +24,9 @@ services:
       - ./knowledge_base:/app/knowledge_base
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 5s

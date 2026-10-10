@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Open Hybrid RAG - Hot Knowledge Sync for Linux / macOS
-# Soporta autenticación por API Key, verificación de código HTTP y IDs jerárquicos basados en ruta.
+# Soporta autenticación por API Key, eliminación de frontmatter YAML e indexación incremental por hash.
 
 FOLDER_PATH="${1:-./knowledge_base}"
 GATEWAY_URL="${2:-http://127.0.0.1:8000/api/v1/ingest}"
 API_KEY="${API_KEY:-}"
 
 echo "============================================================"
-echo "🧠 Open Hybrid RAG - Hot Knowledge Sync"
+echo "🧠 Open Hybrid RAG - Incremental Hot Knowledge Sync"
 echo "📂 Origen: $FOLDER_PATH"
 echo "🌐 Destino: $GATEWAY_URL"
 echo "============================================================"
@@ -21,20 +21,32 @@ indexed_count=0
 error_count=0
 
 while IFS= read -r -d '' file; do
-    # Crear un doc_id único y seguro basado en la ruta relativa
     rel_path="${file#$FOLDER_PATH/}"
     doc_id=$(echo "$rel_path" | sed 's/[^a-zA-Z0-9._-]/_/g' | sed 's/\.md$//')
-    content=$(cat "$file")
+    
+    # Extraer contenido removiendo frontmatter YAML (si existe)
+    content=$(awk '
+        BEGIN { in_fm = 0; count = 0 }
+        /^---$/ {
+            count++
+            if (count == 1) { in_fm = 1; next }
+            if (count == 2) { in_fm = 0; next }
+        }
+        !in_fm { print }
+    ' "$file")
     
     if [ -z "$content" ]; then
         continue
     fi
 
+    content_hash=$(echo -n "$content" | sha256sum | awk '{print $1}')
+
     payload=$(jq -n \
                   --arg id "$doc_id" \
                   --arg text "$content" \
                   --arg path "$rel_path" \
-                  '{doc_id: $id, text: $text, doc_type: "document", metadata: {source_file: $path}}')
+                  --arg hash "$content_hash" \
+                  '{doc_id: $id, text: $text, doc_type: "document", metadata: {source_file: $path, content_hash: $hash}}')
                   
     headers=(-H "Content-Type: application/json")
     if [ -n "$API_KEY" ]; then

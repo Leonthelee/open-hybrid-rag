@@ -17,9 +17,18 @@
       "parameters": {
         "method": "POST",
         "url": "http://127.0.0.1:8000/api/v1/orchestrate",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.GATEWAY_API_KEY || '' }}"
+            }
+          ]
+        },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ { query: $json.body.query || $json.body.pregunta || $json.body.text, audit_assert: true } }}",
+        "jsonBody": "={{ { query: $json.body.query || $json.body.pregunta || $json.body.text, audit_assert: false } }}",
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequest",
@@ -31,12 +40,22 @@
     {
       "parameters": {
         "conditions": {
-          "boolean": [
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "conditions": [
             {
-              "value1": "={{ $json.telemetry.escalated_to_cloud }}",
-              "value2": true
+              "id": "c1",
+              "leftValue": "={{ $json.telemetry.escalated_to_cloud }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
             }
-          ]
+          ],
+          "combinator": "and"
         }
       },
       "type": "n8n-nodes-base.if",
@@ -48,7 +67,7 @@
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ { status: 'success', channel: 'cloud_escalation', answer: $json.answer, doc_id: $json.second_brain_doc_id, latency_ms: $json.telemetry.total_latency_ms, audit: $json.assert_audit } }}"
+        "responseBody": "={{ { status: 'success', channel: 'cloud_escalation', answer: $json.answer, doc_id: $json.second_brain_doc_id, latency_ms: $json.telemetry.total_latency_ms, route: $json.route_taken } }}"
       },
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
@@ -59,13 +78,13 @@
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ { status: 'success', channel: 'local_fast_bypass', answer: $json.answer, doc_id: $json.second_brain_doc_id, latency_ms: $json.telemetry.total_latency_ms, audit: $json.assert_audit } }}"
+        "responseBody": "={{ { status: 'success', channel: $json.route_taken === 'LOCAL_ABSTENTION' ? 'privacy_abstention' : 'local_resolution', answer: $json.answer, doc_id: $json.second_brain_doc_id, latency_ms: $json.telemetry.total_latency_ms, score: $json.similarity_score, route: $json.route_taken } }}"
       },
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
       "position": [920, 380],
       "id": "node-respond-local",
-      "name": "Responder (Vía Local 0ms)"
+      "name": "Responder (Vía Local / Caché)"
     }
   ],
   "connections": {
@@ -102,14 +121,12 @@
         ],
         [
           {
-            "node": "Responder (Vía Local 0ms)",
+            "node": "Responder (Vía Local / Caché)",
             "type": "main",
             "index": 0
           }
         ]
       ]
     }
-  },
-  "active": false,
-  "settings": {}
+  }
 }

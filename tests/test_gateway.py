@@ -162,6 +162,21 @@ class TestAssertEvaluator(unittest.TestCase):
             self.assertIsNone(res["overall_score"])
             self.assertIn("no estuvo disponible", res["feedback"])
 
+    def test_valid_json_assert_evaluation(self):
+        evaluator = AssertEvaluator()
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "message": {
+                "content": '{"technical_score": 9.5, "clarity_score": 9.0, "route_score": 10.0, "overall_score": 9.5, "passed": true, "feedback": "Excelente"}'
+            }
+        }
+        with patch("httpx.AsyncClient.post", return_value=mock_resp):
+            res = asyncio.run(evaluator.evaluate("Pregunta", "Respuesta", "source"))
+            self.assertEqual(res["evaluation_status"], "completed")
+            self.assertTrue(res["passed"])
+            self.assertEqual(res["overall_score"], 9.5)
+
     def test_schema_validation_rejects_out_of_range(self):
         evaluator = AssertEvaluator()
         mock_resp = MagicMock()
@@ -211,7 +226,6 @@ class TestFastAPIEndpoints(unittest.TestCase):
         self.storage_patcher = patch.object(config, "INDEX_STORAGE_PATH", self.temp_index)
         self.storage_patcher.start()
 
-        # Resetear estado en memoria de vector_guard para aislamiento de pruebas
         vector_guard.doc_ids = []
         vector_guard.vectors = []
         vector_guard.documents = {}
@@ -298,36 +312,47 @@ class TestFastAPIEndpoints(unittest.TestCase):
             self.assertEqual(data["route_taken"], "LOCAL_ABSTENTION")
             self.assertIn("privacidad", data["answer"].lower())
 
-    def test_post_fallback_route_reported_correctly(self):
-        fake_doc = {"id": "DOC-1", "text": "Contexto técnico", "type": "document", "metadata": {}}
+    def test_force_cloud_flag(self):
         with patch.object(local_engine, "get_embedding", new_callable=AsyncMock, return_value=[0.1] * 768), \
-             patch.object(vector_guard, "match", return_value=("RESOLVE_LOCAL_MED", fake_doc, 0.75)), \
-             patch.object(local_engine, "generate", new_callable=AsyncMock, return_value=(False, "CUDA OOM")), \
-             patch.object(cloud_bridge, "generate", new_callable=AsyncMock, return_value=(True, "Respuesta desde Cloud Fallback")), \
+             patch.object(cloud_bridge, "generate", new_callable=AsyncMock, return_value=(True, "Respuesta Forzada Nube")), \
              patch.object(vector_guard, "save_to_disk"):
             
             resp = self.client.post("/api/v1/orchestrate", json={
-                "query": "¿Cómo optimizar BGP?",
-                "allow_cloud_fallback": True,
+                "query": "¿Pregunta directa a la nube?",
+                "force_cloud": True,
                 "audit_assert": False
             })
             self.assertEqual(resp.status_code, 200)
-            data = resp.json()
-            self.assertEqual(data["route_taken"], "ESCALATE_TO_CLOUD_FALLBACK")
-            self.assertEqual(data["source"], f"cloud_{config.CLOUD_PROVIDER}_fallback")
+            self.assertEqual(resp.json()["route_taken"], "ESCALATE_TO_CLOUD")
+            self.assertTrue(resp.json()["telemetry"]["escalated_to_cloud"])
 
-    def test_no_new_note_saved_on_qa_cache_hit(self):
-        cached_doc = {"id": "KB-EXISTING", "text": "Respuesta en caché", "type": "qa_cache", "metadata": {}}
-        with patch.object(local_engine, "get_embedding", new_callable=AsyncMock, return_value=[0.1] * 768), \
-             patch.object(vector_guard, "match", return_value=("RESOLVE_LOCAL_HIGH", cached_doc, 0.98)), \
+    def test_cloud_to_cache_to_hit_lifecycle(self):
+        # 1. Primera consulta escala a la nube y se guarda en QA cache
+        simulated_vec = [1.0] + [0.0] * 63
+        with patch.object(local_engine, "get_embedding", new_callable=AsyncMock, return_value=simulated_vec), \
+             patch.object(local_engine, "generate", new_callable=AsyncMock, return_value=(False, "Zero-shot fail")), \
+             patch.object(cloud_bridge, "generate", new_callable=AsyncMock, return_value=(True, "Solución Cloud de Ingeniería")), \
+             patch.object(vector_guard, "save_to_disk"):
+            
+            resp1 = self.client.post("/api/v1/orchestrate", json={
+                "query": "¿Cómo configurar BGP?",
+                "audit_assert": False
+            })
+            self.assertEqual(resp1.status_code, 200)
+            self.assertEqual(resp1.json()["route_taken"], "ESCALATE_TO_CLOUD")
+
+        # 2. Segunda consulta idéntica debe resolver directamente por RESOLVE_LOCAL_HIGH en 0ms
+        with patch.object(local_engine, "get_embedding", new_callable=AsyncMock, return_value=simulated_vec), \
              patch.object(second_brain, "save_interaction") as mock_save:
             
-            resp = self.client.post("/api/v1/orchestrate", json={
-                "query": "¿Pregunta recurrente?",
+            resp2 = self.client.post("/api/v1/orchestrate", json={
+                "query": "¿Cómo configurar BGP?",
                 "audit_assert": False
             })
-            self.assertEqual(resp.status_code, 200)
-            self.assertEqual(resp.json()["route_taken"], "RESOLVE_LOCAL_HIGH")
+            self.assertEqual(resp2.status_code, 200)
+            self.assertEqual(resp2.json()["route_taken"], "RESOLVE_LOCAL_HIGH")
+            self.assertEqual(resp2.json()["source"], "local_vector_cache")
+            self.assertEqual(resp2.json()["answer"], "Solución Cloud de Ingeniería")
             mock_save.assert_not_called()
 
 
