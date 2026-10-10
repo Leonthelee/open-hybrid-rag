@@ -1,10 +1,12 @@
 import time
 import uuid
+import logging
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict, Any
 from fastapi import FastAPI, Request, HTTPException, Depends, Header, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+
 try:
     from . import config
     from .vector_guard import VectorGuard
@@ -20,10 +22,12 @@ except (ImportError, ValueError):
     from second_brain import SecondBrain
     from assert_evaluator import AssertEvaluator
 
+logger = logging.getLogger("open_hybrid_rag.main")
+
 app = FastAPI(
     title="Open Hybrid RAG Gateway",
     description="Universal Local-First AI Orchestrator with Multi-Cloud Fallback & ASSERT Quality Guard",
-    version="1.1.0"
+    version="1.2.0"
 )
 
 app.add_middleware(
@@ -44,14 +48,14 @@ cloud_bridge = CloudBridge()
 second_brain = SecondBrain()
 assert_evaluator = AssertEvaluator()
 
-# 🔒 Dependencia de Autenticación de API Key (Opcional)
+# 🔒 Autenticación de API Key
 async def verify_api_key(x_api_key: Optional[str] = Header(None)):
     if config.API_KEY:
         if not x_api_key or x_api_key != config.API_KEY:
             raise HTTPException(status_code=401, detail="API Key inválida o no proporcionada en header X-API-Key.")
     return True
 
-# 🛑 Middleware de Tráfico y Telemetría
+# 🛑 Middleware de Telemetría
 @app.middleware("http")
 async def traffic_telemetry_middleware(request: Request, call_next):
     req_id = f"req-{uuid.uuid4().hex[:8]}"
@@ -68,11 +72,12 @@ async def traffic_telemetry_middleware(request: Request, call_next):
 # Evento de Arranque: Carga de persistencia de vectores
 @app.on_event("startup")
 async def startup_event():
+    logger.info(f"🚀 Iniciando Open Hybrid RAG Gateway en {config.HOST}:{config.PORT} [Modo: {config.PRIVACY_MODE.value}]")
     loaded = vector_guard.load_from_disk(config.INDEX_STORAGE_PATH)
     if loaded:
-        print(f"[🚀 Startup] Índice vectorial cargado desde disco: {len(vector_guard.doc_ids)} documentos.")
+        logger.info(f"📂 Índice vectorial cargado desde disco: {len(vector_guard.doc_ids)} documentos.")
     else:
-        print("[🚀 Startup] No se encontró índice previo en disco. Iniciando con base limpia.")
+        logger.info("📂 Base vectorial inicializada limpia.")
 
 # Modelos Pydantic
 class QueryRequest(BaseModel):
@@ -86,15 +91,16 @@ class IngestRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=50000)
     doc_id: Optional[str] = None
     doc_type: str = Field("document", description="'document' (RAG context) | 'qa_cache' (direct bypass)")
+    system_prompt: Optional[str] = None
     metadata: Optional[dict] = None
 
 @app.get("/")
 async def health_check():
-    """Endpoint de salud del servicio con diagnóstico de configuración."""
+    """Endpoint de salud del servicio con diagnóstico completo."""
     return {
         "status": "online",
         "service": "Open Hybrid RAG Gateway",
-        "privacy_mode": config.PRIVACY_MODE,
+        "privacy_mode": config.PRIVACY_MODE.value,
         "local_engine": {
             "type": config.LOCAL_ENGINE_TYPE,
             "llm_model": config.LOCAL_LLM_MODEL,
@@ -111,7 +117,7 @@ async def health_check():
             "expected_dimensions": vector_guard.expected_dim,
             "storage_path": config.INDEX_STORAGE_PATH
         },
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.utcnow().isoformat()
     }
 
 @app.post("/api/v1/ingest", dependencies=[Depends(verify_api_key)])
@@ -119,7 +125,10 @@ async def ingest_document(req: IngestRequest):
     """Indexa un documento o par QA validando dimensiones y persistiendo en disco."""
     vec = await local_engine.get_embedding(req.text)
     if not vec:
-        raise HTTPException(502, "Error: No se pudo generar el embedding con el motor local.")
+        raise HTTPException(
+            status_code=503,
+            detail="No se pudo generar el vector de embeddings con el motor local."
+        )
 
     doc_id = req.doc_id or f"DOC-{uuid.uuid4().hex[:8]}"
     try:
@@ -128,12 +137,15 @@ async def ingest_document(req: IngestRequest):
             text=req.text,
             vector=vec,
             doc_type=req.doc_type,
+            system_prompt=req.system_prompt,
             metadata=req.metadata
         )
-        # Guardar en disco
         vector_guard.save_to_disk(config.INDEX_STORAGE_PATH)
-    except ValueError as e:
-        raise HTTPException(400, f"Error de validación vectorial: {str(e)}")
+    except ValueError as val_err:
+        raise HTTPException(status_code=400, detail=str(val_err))
+    except Exception as e:
+        logger.error(f"Error persistiendo documento ingest: {e}")
+        raise HTTPException(status_code=500, detail=f"Error de persistencia: {str(e)}")
 
     return {
         "status": "indexed",
@@ -143,112 +155,152 @@ async def ingest_document(req: IngestRequest):
         "total_documents": len(vector_guard.doc_ids)
     }
 
-@app.post("/api/v1/orchestrate", dependencies=[Depends(verify_api_key)])
-async def orchestrate(req: QueryRequest, request: Request, background_tasks: BackgroundTasks):
+@app.post("/api/v1/orchestrate")
+async def orchestrate_query(req: QueryRequest, request: Request, authorized: bool = Depends(verify_api_key)):
     """
-    Orquestador Central Determinístico:
-    1. Obtiene embedding local de la query.
-    2. Vector Guard evalúa certeza matemática.
-    3. Resuelve en local o escala a la nube según políticas de privacidad.
-    4. Persiste únicamente respuestas exitosas en el Segundo Cerebro.
-    5. Opcional: Audita la respuesta con ASSERT.
+    Orquestador Universal Local-First con Escalamiento Multi-Cloud y Guardia de Calidad ASSERT.
     """
     t_start = time.perf_counter()
+    storage_warning = None
+
+    # 1. Obtener Embedding de la Consulta
+    vec = await local_engine.get_embedding(req.query)
     
-    # 1. Obtener embedding
-    q_vec = await local_engine.get_embedding(req.query)
-    
+    # 2. Evaluación de Ruta Vectorial
     route = "ESCALATE_TO_CLOUD"
     best_doc = None
     score = 0.0
 
-    if q_vec and not req.force_cloud:
-        route, best_doc, score = vector_guard.match(q_vec)
+    if vec:
+        route, best_doc, score = vector_guard.match(vec, system_prompt=req.system_prompt)
 
-    # Verificar políticas de privacidad
-    cloud_permitted = (config.PRIVACY_MODE != "local_only") and req.allow_cloud_fallback
+    # Forzar nube si el cliente lo solicita
+    if req.force_cloud:
+        route = "ESCALATE_TO_CLOUD"
 
-    # 2. Ejecución según Ruta
-    answer = None
-    source = None
-    success = False
+    answer = ""
+    source = "unknown"
 
+    # =========================================================================
+    # ESCENARIO A: RESOLVE_LOCAL_HIGH (Bypass Directo de Caché Verificado)
+    # =========================================================================
     if route == "RESOLVE_LOCAL_HIGH" and best_doc and best_doc.get("type") == "qa_cache":
-        # Bypass directo de QA previamente validado
         answer = best_doc["text"]
-        source = "local_qa_cache_bypass"
-        success = True
-    elif (route in ("RESOLVE_LOCAL_MED", "RESOLVE_LOCAL_HIGH")) and best_doc:
-        # Síntesis local con contexto
-        context_prompt = f"[Contexto de la Base de Conocimiento]:\n{best_doc['text']}\n\n[Pregunta]:\n{req.query}"
-        success, local_resp = await local_engine.generate(prompt=context_prompt, system_prompt=req.system_prompt)
+        source = "local_vector_cache"
+
+    # =========================================================================
+    # ESCENARIO B: RESOLVE_LOCAL_MED (RAG con Contexto Documental Local)
+    # =========================================================================
+    elif route == "RESOLVE_LOCAL_MED" and best_doc:
+        rag_prompt = f"""Usa el siguiente contexto técnico para responder la consulta con precisión:
+
+[CONTEXTO RECUPERADO]:
+{best_doc['text']}
+
+[CONSULTA]:
+{req.query}"""
+
+        success, local_resp = await local_engine.generate(rag_prompt, system_prompt=req.system_prompt)
         if success:
             answer = local_resp
-            source = "local_llm_inference"
+            source = "local_slm_rag"
         else:
-            # Si el modelo local falló y la nube está permitida, intentar escalamiento
-            if cloud_permitted:
-                cloud_ok, cloud_resp = await cloud_bridge.generate(prompt=req.query, system_instruction=req.system_prompt)
-                if cloud_ok:
-                    answer = cloud_resp
-                    source = f"cloud_{config.CLOUD_PROVIDER}_fallback"
-                    success = True
-                else:
-                    raise HTTPException(502, f"Fallo en Local LLM ({local_resp}) y en Cloud ({cloud_resp}).")
+            # Local SLM falló -> Evaluar fallback a cloud respetando privacidad
+            if config.PRIVACY_MODE == config.PrivacyMode.LOCAL_ONLY or not req.allow_cloud_fallback:
+                route = "LOCAL_ABSTENTION"
+                answer = "No se encontró evidencia suficiente en la base local y la política de privacidad prohíbe el escalamiento a la nube."
+                source = "local_privacy_abstention"
             else:
-                raise HTTPException(503, f"Fallo en Local LLM: {local_resp} (Escalamiento a nube bloqueado por privacidad).")
+                logger.info(f"🔄 Fallback local falló ({local_resp}). Escalando a Cloud ({config.CLOUD_PROVIDER}).")
+                cloud_success, cloud_resp = await cloud_bridge.generate(rag_prompt, system_prompt=req.system_prompt)
+                if cloud_success:
+                    answer = cloud_resp
+                    route = "ESCALATE_TO_CLOUD_FALLBACK"
+                    source = f"cloud_{config.CLOUD_PROVIDER}_fallback"
+                else:
+                    raise HTTPException(
+                        status_code=502,
+                        detail=f"Error en inferencia local y en fallback cloud: {cloud_resp}"
+                    )
+
+    # =========================================================================
+    # ESCENARIO C: ESCALATE_TO_CLOUD (Local-First Zero-Shot o Escalamiento Cloud)
+    # =========================================================================
     else:
-        # Escalamiento Cloud
-        if not cloud_permitted:
-            return {
-                "request_id": request.state.req_id,
-                "query": req.query,
-                "route_taken": "LOCAL_ABSTENTION",
-                "source": "privacy_guard_abstention",
-                "similarity_score": round(score, 4),
-                "answer": "No se encontró evidencia suficiente en la base local y la política de privacidad prohíbe el escalamiento a la nube.",
-                "second_brain_doc_id": None,
-                "telemetry": {"total_latency_ms": round((time.perf_counter() - t_start) * 1000, 2), "escalated_to_cloud": False},
-                "assert_audit": None
-            }
+        # Intentar primero Zero-Shot Local si no se forzó nube
+        tried_local = False
+        if not req.force_cloud:
+            success, local_resp = await local_engine.generate(req.query, system_prompt=req.system_prompt)
+            tried_local = True
+            if success:
+                answer = local_resp
+                route = "RESOLVE_LOCAL_ZERO_SHOT"
+                source = "local_slm_zero_shot"
 
-        cloud_ok, cloud_resp = await cloud_bridge.generate(prompt=req.query, system_instruction=req.system_prompt)
-        if not cloud_ok:
-            # NUNCA guardar errores en el Segundo Cerebro
-            raise HTTPException(502, f"Error en proveedor cloud ({config.CLOUD_PROVIDER}): {cloud_resp}")
-        
-        answer = cloud_resp
-        source = f"cloud_{config.CLOUD_PROVIDER}_fallback"
-        success = True
+        # Si no se resolvió localmente:
+        if not answer:
+            if config.PRIVACY_MODE == config.PrivacyMode.LOCAL_ONLY or not req.allow_cloud_fallback:
+                route = "LOCAL_ABSTENTION"
+                answer = "No se encontró evidencia suficiente en la base local y la política de privacidad prohíbe el escalamiento a la nube."
+                source = "local_privacy_abstention"
+            else:
+                cloud_success, cloud_resp = await cloud_bridge.generate(req.query, system_prompt=req.system_prompt)
+                if cloud_success:
+                    answer = cloud_resp
+                    route = "ESCALATE_TO_CLOUD"
+                    source = f"cloud_{config.CLOUD_PROVIDER}"
+                else:
+                    raise HTTPException(
+                        status_code=502,
+                        detail=f"Fallo en proveedor cloud ({config.CLOUD_PROVIDER}): {cloud_resp}"
+                    )
 
-    # 3. Guardar en Segundo Cerebro ONLY si fue exitosa
-    doc_id = second_brain.save_interaction(
-        query=req.query,
-        answer=answer,
-        source=source,
-        metadata={"score": score}
-    )
-
-    # Si vino de la nube y tenemos vector, agregarlo a la memoria como qa_cache para auto-aprendizaje
-    if "cloud" in source and q_vec:
-        try:
-            vector_guard.add_document(
-                doc_id=doc_id,
-                text=answer,
-                vector=q_vec,
-                doc_type="qa_cache",
-                metadata={"source": source, "query": req.query}
-            )
-            vector_guard.save_to_disk(config.INDEX_STORAGE_PATH)
-        except Exception:
-            pass
-
-    # 4. Auditoría ASSERT (Opcional)
+    # =========================================================================
+    # 3. Auditoría ASSERT y Filtrado de Caché
+    # =========================================================================
     eval_result = None
-    if req.audit_assert:
+    if req.audit_assert and source not in ("local_vector_cache", "local_privacy_abstention"):
         eval_result = await assert_evaluator.evaluate(req.query, answer, source)
 
-    # Latencia total real que incluye almacenamiento y evaluación
+    # =========================================================================
+    # 4. Almacenamiento Atómico en Second Brain (Sin bloquear con HTTP 500)
+    # =========================================================================
+    doc_id = None
+    if source not in ("local_vector_cache", "local_privacy_abstention"):
+        try:
+            doc_id = second_brain.save_interaction(
+                query=req.query,
+                answer=answer,
+                source=source,
+                metadata={"similarity_score": score, "route": route}
+            )
+        except Exception as e:
+            logger.error(f"⚠️ Error al guardar nota Markdown en Second Brain: {e}")
+            storage_warning = f"Storage warning: {str(e)}"
+
+        # Incorporar a VectorGuard SOLO si ASSERT aprobó la respuesta o no fue rechazada
+        should_cache = True
+        if eval_result and eval_result.get("passed") is False:
+            should_cache = False
+            logger.info("🛑 Respuesta rechazada por ASSERT. No se incorporará al QA Cache de alta certeza.")
+
+        if should_cache and vec:
+            try:
+                qa_doc_id = doc_id or f"KB-{uuid.uuid4().hex[:8]}"
+                vector_guard.add_document(
+                    doc_id=qa_doc_id,
+                    text=answer,
+                    vector=vec,
+                    doc_type="qa_cache",
+                    system_prompt=req.system_prompt,
+                    metadata={"source": source, "query": req.query}
+                )
+                vector_guard.save_to_disk(config.INDEX_STORAGE_PATH)
+            except Exception as e:
+                logger.error(f"⚠️ Error al actualizar VectorGuard: {e}")
+                if not storage_warning:
+                    storage_warning = f"Vector index persistence warning: {str(e)}"
+
     total_latency_ms = round((time.perf_counter() - t_start) * 1000, 2)
 
     return {
@@ -261,7 +313,8 @@ async def orchestrate(req: QueryRequest, request: Request, background_tasks: Bac
         "second_brain_doc_id": doc_id,
         "telemetry": {
             "total_latency_ms": total_latency_ms,
-            "escalated_to_cloud": "cloud" in source
+            "escalated_to_cloud": "cloud" in source,
+            "storage_warning": storage_warning
         },
         "assert_audit": eval_result
     }
