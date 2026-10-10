@@ -225,6 +225,8 @@ class TestFastAPIEndpoints(unittest.TestCase):
         self.temp_index = os.path.join(self.temp_dir, "test_index.npz")
         self.storage_patcher = patch.object(config, "INDEX_STORAGE_PATH", self.temp_index)
         self.storage_patcher.start()
+        self.brain_patcher = patch.object(second_brain, "base_path", self.temp_dir)
+        self.brain_patcher.start()
 
         vector_guard.doc_ids = []
         vector_guard.vectors = []
@@ -235,6 +237,7 @@ class TestFastAPIEndpoints(unittest.TestCase):
 
     def tearDown(self):
         self.storage_patcher.stop()
+        self.brain_patcher.stop()
         if os.path.exists(self.temp_dir):
             shutil.rmtree(self.temp_dir)
 
