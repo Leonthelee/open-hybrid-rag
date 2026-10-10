@@ -1,0 +1,115 @@
+{
+  "name": "Open Hybrid RAG - Universal Chat & Sync Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "hybrid-chat-webhook",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [200, 300],
+      "id": "node-webhook-input",
+      "name": "Chat / Trigger Input"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/api/v1/orchestrate",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { query: $json.body.query || $json.body.pregunta || $json.body.text, audit_assert: true } }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 300],
+      "id": "node-orchestrate-request",
+      "name": "Open Hybrid RAG Gateway"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.telemetry.escalated_to_cloud }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 300],
+      "id": "node-if-escalated",
+      "name": "¿Escaló a la Nube?"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { status: 'success', channel: 'cloud_escalation', answer: $json.answer, doc_id: $json.second_brain_doc_id, latency_ms: $json.telemetry.total_latency_ms, audit: $json.assert_audit } }}"
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [920, 220],
+      "id": "node-respond-cloud",
+      "name": "Responder (Vía Cloud)"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { status: 'success', channel: 'local_fast_bypass', answer: $json.answer, doc_id: $json.second_brain_doc_id, latency_ms: $json.telemetry.total_latency_ms, audit: $json.assert_audit } }}"
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [920, 380],
+      "id": "node-respond-local",
+      "name": "Responder (Vía Local 0ms)"
+    }
+  ],
+  "connections": {
+    "Chat / Trigger Input": {
+      "main": [
+        [
+          {
+            "node": "Open Hybrid RAG Gateway",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Open Hybrid RAG Gateway": {
+      "main": [
+        [
+          {
+            "node": "¿Escaló a la Nube?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Escaló a la Nube?": {
+      "main": [
+        [
+          {
+            "node": "Responder (Vía Cloud)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder (Vía Local 0ms)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {}
+}

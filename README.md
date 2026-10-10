@@ -190,6 +190,21 @@ curl -X POST http://localhost:8000/api/v1/orchestrate \
 
 ---
 
+## ⚡ Integrations & Utilities
+
+### 🔄 1-Click n8n Workflow
+Included in `integrations/n8n/n8n_workflow_open_hybrid_rag.json` is a production-ready template for n8n:
+- **Webhook Input:** Receives queries from any external frontend, Telegram bot, or API.
+- **Smart Decision Node:** Segments responses based on whether the query was resolved locally (0ms) or escalated to the cloud.
+- **Import:** Open n8n ➔ `Import from File` ➔ Select `integrations/n8n/n8n_workflow_open_hybrid_rag.json`.
+
+### 📂 Hot Knowledge Sync Scripts
+Easily index entire directories of Markdown notes (e.g. Obsidian Vaults, docs) into the running gateway:
+- **Windows (PowerShell):** `.\scripts\sync_brain.ps1 -FolderPath "C:\Your\Notes"`
+- **Linux / macOS (Bash):** `./scripts/sync_brain.sh /path/to/notes`
+
+---
+
 ## 🤝 Open Source Ecosystem & Acknowledgments
 
 - **Local AI Foundations:** Ollama, Qwen Team (Alibaba Cloud), vLLM, llama.cpp, and LM Studio.
