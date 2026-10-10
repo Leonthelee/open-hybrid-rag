@@ -41,7 +41,6 @@ class TestVectorGuard(unittest.TestCase):
         self.assertEqual(len(self.guard.documents), 2)
         self.assertEqual(self.guard.expected_dim, 768)
 
-        # Vector con dimensión incompatible debe fallar con ValueError
         with self.assertRaises(ValueError):
             self.guard.add_document("doc3", "Contenido 3", vec_384)
 
@@ -51,23 +50,20 @@ class TestVectorGuard(unittest.TestCase):
         self.assertEqual(len(self.guard.documents), 1)
         self.assertEqual(self.guard.documents["doc_duplicate"]["text"], "Versión 1")
 
-        # Reingesta del mismo doc_id debe actualizar, no duplicar
         self.guard.add_document("doc_duplicate", "Versión 2", vec)
         self.assertEqual(len(self.guard.documents), 1)
         self.assertEqual(self.guard.documents["doc_duplicate"]["text"], "Versión 2")
 
-    def test_atomic_persistence_and_reload(self):
+    def test_atomic_persistence_and_reload_allow_pickle_false(self):
         vec1 = [0.1] * 128
         vec2 = [0.9] * 128
         self.guard.add_document("doc_persist_1", "Texto persistente 1", vec1, doc_type="document")
         self.guard.add_document("doc_persist_2", "Texto persistente 2", vec2, doc_type="qa_cache")
         
-        # Guardar en disco de forma atómica
         self.guard.save_to_disk(self.index_path)
         self.assertTrue(os.path.exists(self.index_path))
         self.assertTrue(os.path.exists(self.meta_path))
 
-        # Crear nuevo guard y cargar desde disco
         guard_reloaded = VectorGuard()
         loaded = guard_reloaded.load_from_disk(self.index_path)
         
@@ -76,9 +72,23 @@ class TestVectorGuard(unittest.TestCase):
         self.assertEqual(guard_reloaded.expected_dim, 128)
         self.assertEqual(guard_reloaded.documents["doc_persist_2"]["type"], "qa_cache")
 
+    def test_load_from_disk_rejects_inconsistent_doc_ids(self):
+        vec1 = [0.1] * 128
+        self.guard.add_document("doc_valid", "Texto válido", vec1)
+        self.guard.save_to_disk(self.index_path)
+
+        # Corromper el archivo JSON eliminando el doc_id de la metadata
+        import json
+        with open(self.meta_path, "w", encoding="utf-8") as f:
+            json.dump({"expected_dim": 128, "documents": {}}, f)
+
+        corrupt_guard = VectorGuard()
+        loaded = corrupt_guard.load_from_disk(self.index_path)
+        self.assertFalse(loaded)
+        self.assertEqual(len(corrupt_guard.documents), 0)
+
     def test_system_prompt_scoping_in_cache(self):
         vec = [1.0] + [0.0] * 127
-        # Guardar caché con prompt en español
         self.guard.add_document(
             "qa_1",
             "Respuesta en español",
@@ -87,12 +97,10 @@ class TestVectorGuard(unittest.TestCase):
             system_prompt="Responde en español técnico"
         )
 
-        # Misma query con el mismo system_prompt -> HIGH bypass
         route, doc, score = self.guard.match(vec, system_prompt="Responde en español técnico")
         self.assertEqual(route, "RESOLVE_LOCAL_HIGH")
         self.assertEqual(doc["text"], "Respuesta en español")
 
-        # Misma query pero con system_prompt en inglés -> Se degrada a MED (contexto) para no devolver idioma incorrecto
         route, doc, score = self.guard.match(vec, system_prompt="Answer in concise English")
         self.assertEqual(route, "RESOLVE_LOCAL_MED")
 
@@ -118,7 +126,6 @@ class TestSecondBrain(unittest.TestCase):
             file_path = os.path.join(self.temp_dir, f"{doc_id}.md")
             self.assertTrue(os.path.exists(file_path))
 
-        # Cero colisiones
         self.assertEqual(len(saved_ids), len(set(saved_ids)))
 
 
@@ -136,7 +143,6 @@ class TestAssertEvaluator(unittest.TestCase):
         evaluator = AssertEvaluator()
         mock_resp = MagicMock()
         mock_resp.status_code = 200
-        # Simular JSON con puntaje fuera de rango (overall_score=999)
         mock_resp.json.return_value = {
             "message": {
                 "content": '{"technical_score": 999, "clarity_score": 9, "route_score": 10, "overall_score": 999, "passed": true, "feedback": "fake"}'
@@ -151,6 +157,15 @@ class TestAssertEvaluator(unittest.TestCase):
 class TestFastAPIEndpoints(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(app)
+        self.temp_dir = tempfile.mkdtemp()
+        self.temp_index = os.path.join(self.temp_dir, "test_index.npz")
+        self.storage_patcher = patch.object(config, "INDEX_STORAGE_PATH", self.temp_index)
+        self.storage_patcher.start()
+
+    def tearDown(self):
+        self.storage_patcher.stop()
+        if os.path.exists(self.temp_dir):
+            shutil.rmtree(self.temp_dir)
 
     def test_health_check(self):
         response = self.client.get("/")
@@ -160,21 +175,30 @@ class TestFastAPIEndpoints(unittest.TestCase):
         self.assertIn("vector_index", data)
         self.assertIn("cloud_fallback", data)
 
+    def test_security_validation_aborts_on_exposed_host_without_key(self):
+        with patch.object(config, "HOST", "0.0.0.0"), patch.object(config, "API_KEY", ""):
+            with self.assertRaises(RuntimeError):
+                config.validate_server_security()
+
     def test_auth_rejection_on_ingest(self):
         with patch.object(config, "API_KEY", "secret_key_123"):
-            # Sin header -> 401
             resp = self.client.post("/api/v1/ingest", json={"text": "documento secreto"})
             self.assertEqual(resp.status_code, 401)
 
-            # Header incorrecto -> 401
             resp = self.client.post("/api/v1/ingest", json={"text": "documento secreto"}, headers={"X-API-Key": "wrong_key"})
             self.assertEqual(resp.status_code, 401)
 
-            # Header correcto -> 200
-            with patch.object(local_engine, "get_embedding", new_callable=AsyncMock) as mock_embed:
+            with patch.object(local_engine, "get_embedding", new_callable=AsyncMock) as mock_embed, \
+                 patch.object(vector_guard, "save_to_disk"):
                 mock_embed.return_value = [0.1] * 768
                 resp = self.client.post("/api/v1/ingest", json={"text": "documento secreto"}, headers={"X-API-Key": "secret_key_123"})
                 self.assertEqual(resp.status_code, 200)
+
+    def test_public_ingest_rejects_qa_cache_doc_type(self):
+        # La ingesta pública solo debe aceptar 'document', nunca inyección de 'qa_cache'
+        with patch.object(config, "API_KEY", ""):
+            resp = self.client.post("/api/v1/ingest", json={"text": "bypass malicioso", "doc_type": "qa_cache"})
+            self.assertEqual(resp.status_code, 422)
 
     def test_privacy_mode_abstention(self):
         with patch.object(config, "PRIVACY_MODE", config.PrivacyMode.LOCAL_ONLY), \
@@ -191,12 +215,12 @@ class TestFastAPIEndpoints(unittest.TestCase):
             self.assertIn("privacidad", data["answer"].lower())
 
     def test_post_fallback_route_reported_correctly(self):
-        # Simular que hay match local MED en vector_guard, pero el SLM local falla y la nube responde
         fake_doc = {"id": "DOC-1", "text": "Contexto técnico", "type": "document", "metadata": {}}
         with patch.object(local_engine, "get_embedding", new_callable=AsyncMock, return_value=[0.1] * 768), \
              patch.object(vector_guard, "match", return_value=("RESOLVE_LOCAL_MED", fake_doc, 0.75)), \
              patch.object(local_engine, "generate", new_callable=AsyncMock, return_value=(False, "CUDA OOM")), \
-             patch.object(cloud_bridge, "generate", new_callable=AsyncMock, return_value=(True, "Respuesta desde Cloud Fallback")):
+             patch.object(cloud_bridge, "generate", new_callable=AsyncMock, return_value=(True, "Respuesta desde Cloud Fallback")), \
+             patch.object(vector_guard, "save_to_disk"):
             
             resp = self.client.post("/api/v1/orchestrate", json={
                 "query": "¿Cómo optimizar BGP?",
@@ -209,7 +233,6 @@ class TestFastAPIEndpoints(unittest.TestCase):
             self.assertEqual(data["source"], f"cloud_{config.CLOUD_PROVIDER}_fallback")
 
     def test_failed_assert_is_not_promoted_to_qa_cache(self):
-        # Simular que ASSERT rechaza la respuesta (passed: False)
         failed_assert = {
             "technical_score": 3.0,
             "clarity_score": 4.0,
@@ -231,7 +254,6 @@ class TestFastAPIEndpoints(unittest.TestCase):
             self.assertEqual(resp.status_code, 200)
             data = resp.json()
             self.assertFalse(data["assert_audit"]["passed"])
-            # Verificar que VectorGuard NO agregó la respuesta rechazada al caché
             mock_add_doc.assert_not_called()
 
 

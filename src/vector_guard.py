@@ -1,7 +1,6 @@
 import os
 import json
 import hashlib
-import tempfile
 import logging
 from datetime import datetime
 from typing import Optional, Tuple, Dict, Any
@@ -16,8 +15,8 @@ logger = logging.getLogger("open_hybrid_rag.vector_guard")
 
 class VectorGuard:
     """
-    Guardián Vectorial de Alta Densidad con Persistencia Transaccional,
-    Aislamiento por System Prompt, TTL y Validación de Dimensiones.
+    Guardián Vectorial de Alta Densidad con Persistencia Atómica,
+    np.load(allow_pickle=False), Aislamiento por System Prompt y Validación Estricta.
     """
     def __init__(self, high_threshold: float = config.RAG_CERTAINTY_THRESHOLD, min_threshold: float = config.RAG_MIN_THRESHOLD):
         self.high_threshold = high_threshold
@@ -47,7 +46,6 @@ class VectorGuard:
         if vec.ndim != 1 or len(vec) == 0 or not np.all(np.isfinite(vec)):
             raise ValueError("El vector debe ser un array unidimensional de números finitos.")
 
-        # Validación estricta de dimensiones
         if self.expected_dim is None:
             self.expected_dim = len(vec)
         elif len(vec) != self.expected_dim:
@@ -66,7 +64,6 @@ class VectorGuard:
         if system_prompt:
             doc_meta["system_prompt_hash"] = self.compute_prompt_hash(system_prompt)
 
-        # Si el documento ya existe, actualizarlo en la posición existente
         if doc_id in self.documents:
             idx = self.doc_ids.index(doc_id)
             if self.matrix is not None:
@@ -92,11 +89,7 @@ class VectorGuard:
         query_vector: list[float],
         system_prompt: Optional[str] = None
     ) -> Tuple[str, Optional[dict], float]:
-        """
-        Calcula similitud coseno ultra-rápida.
-        Verifica vigencia (TTL) y compatibilidad de instrucciones (system_prompt).
-        Retorna: (decision_route, best_document, best_score)
-        """
+        """Calcula similitud coseno ultra-rápida y respeta aislamiento de instrucciones."""
         if self.matrix is None or len(self.doc_ids) == 0:
             return "ESCALATE_TO_CLOUD", None, 0.0
 
@@ -114,25 +107,12 @@ class VectorGuard:
         best_doc_id = self.doc_ids[best_idx]
         best_doc = self.documents[best_doc_id]
 
-        # Verificar vigencia si existe expires_at
-        expires_at = best_doc.get("metadata", {}).get("expires_at")
-        if expires_at:
-            try:
-                exp_dt = datetime.fromisoformat(expires_at)
-                if datetime.utcnow() > exp_dt:
-                    logger.info(f"[VectorGuard] Documento {best_doc_id} expirado. Tratando como ESCALATE_TO_CLOUD.")
-                    return "ESCALATE_TO_CLOUD", None, 0.0
-            except Exception:
-                pass
-
         if best_score >= self.high_threshold:
             if best_doc.get("type") == "qa_cache":
-                # Validar coherencia de instrucciones
                 cached_prompt_hash = best_doc.get("metadata", {}).get("system_prompt_hash")
                 if cached_prompt_hash and system_prompt is not None:
                     current_prompt_hash = self.compute_prompt_hash(system_prompt)
                     if cached_prompt_hash != current_prompt_hash:
-                        # Si cambiaron las instrucciones, degradar a contexto sin bypass directo
                         return "RESOLVE_LOCAL_MED", best_doc, best_score
                 return "RESOLVE_LOCAL_HIGH", best_doc, best_score
             else:
@@ -143,7 +123,7 @@ class VectorGuard:
             return "ESCALATE_TO_CLOUD", best_doc, best_score
 
     def save_to_disk(self, storage_path: str):
-        """Persistencia atómica y transaccional en disco."""
+        """Persistencia atómica y segura en disco con array de strings para allow_pickle=False."""
         if self.matrix is None or not self.doc_ids:
             return
 
@@ -155,7 +135,10 @@ class VectorGuard:
         tmp_meta = os.path.join(storage_dir, f".tmp_{os.path.basename(meta_path)}")
 
         try:
-            np.savez_compressed(tmp_npz, matrix=self.matrix, doc_ids=np.array(self.doc_ids))
+            # Convertir doc_ids a array de strings con encoding UTF-8 explícito
+            doc_ids_array = np.array(self.doc_ids, dtype=np.str_)
+            np.savez_compressed(tmp_npz, matrix=self.matrix, doc_ids=doc_ids_array)
+            
             with open(tmp_meta, "w", encoding="utf-8") as f:
                 json.dump({
                     "expected_dim": self.expected_dim,
@@ -163,7 +146,6 @@ class VectorGuard:
                     "updated_at": datetime.utcnow().isoformat()
                 }, f, ensure_ascii=False, indent=2)
 
-            # Reemplazo atómico de ambos archivos
             os.replace(tmp_npz, storage_path)
             os.replace(tmp_meta, meta_path)
         except Exception as e:
@@ -177,16 +159,16 @@ class VectorGuard:
             raise
 
     def load_from_disk(self, storage_path: str) -> bool:
-        """Carga transaccional desde disco con validación de consistencia total."""
+        """Carga segura con allow_pickle=False y verificación rigurosa de consistencia."""
         meta_path = storage_path.replace(".npz", "_meta.json")
         if not os.path.exists(storage_path) or not os.path.exists(meta_path):
             return False
 
         try:
-            # 1. Carga preliminar
-            data = np.load(storage_path, allow_pickle=True)
-            loaded_matrix = data["matrix"]
-            loaded_doc_ids = list(data["doc_ids"])
+            # 1. Carga segura sin pickle
+            with np.load(storage_path, allow_pickle=False) as data:
+                loaded_matrix = data["matrix"]
+                loaded_doc_ids = [str(x) for x in data["doc_ids"]]
 
             with open(meta_path, "r", encoding="utf-8") as f:
                 meta = json.load(f)
@@ -195,20 +177,24 @@ class VectorGuard:
 
             # 2. Validación de consistencia transaccional
             if len(loaded_matrix) != len(loaded_doc_ids) or len(loaded_doc_ids) != len(loaded_docs):
-                logger.error("❌ Persistencia inconsistente: el número de vectores no coincide con documentos. Abortando carga.")
+                logger.error(f"❌ Persistencia inconsistente: {len(loaded_matrix)} vectores vs {len(loaded_doc_ids)} IDs vs {len(loaded_docs)} docs. Rechazando índice.")
+                return False
+
+            if not set(loaded_doc_ids).issubset(set(loaded_docs.keys())):
+                logger.error("❌ Persistencia inconsistente: existen doc_ids en el vector que no están en documents. Rechazando índice.")
                 return False
 
             if loaded_matrix.ndim != 2 or loaded_matrix.shape[1] != loaded_dim:
-                logger.error("❌ Dimensión de matriz inconsistente con metadatos. Abortando carga.")
+                logger.error("❌ Dimensión de matriz inconsistente con metadatos. Rechazando índice.")
                 return False
 
             # 3. Asignación atómica en memoria
-            self.matrix = loaded_matrix
+            self.matrix = loaded_matrix.astype(np.float32)
             self.doc_ids = loaded_doc_ids
             self.expected_dim = loaded_dim
             self.documents = loaded_docs
             return True
 
         except Exception as e:
-            logger.error(f"❌ Error cargando índice desde disco: {e}")
+            logger.error(f"❌ Error cargando índice seguro desde disco: {e}")
             return False

@@ -1,8 +1,10 @@
 import time
 import uuid
+import secrets
 import logging
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Literal
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException, Depends, Header, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -24,20 +26,6 @@ except (ImportError, ValueError):
 
 logger = logging.getLogger("open_hybrid_rag.main")
 
-app = FastAPI(
-    title="Open Hybrid RAG Gateway",
-    description="Universal Local-First AI Orchestrator with Multi-Cloud Fallback & ASSERT Quality Guard",
-    version="1.2.0"
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 # Inicialización de Componentes
 vector_guard = VectorGuard(
     high_threshold=config.RAG_CERTAINTY_THRESHOLD,
@@ -48,10 +36,42 @@ cloud_bridge = CloudBridge()
 second_brain = SecondBrain()
 assert_evaluator = AssertEvaluator()
 
-# 🔒 Autenticación de API Key
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Gestor de ciclo de vida del servidor (validación de seguridad y carga de persistencia)."""
+    config.validate_server_security()
+    logger.info(f"🚀 Iniciando Open Hybrid RAG Gateway en {config.HOST}:{config.PORT} [Modo: {config.PRIVACY_MODE.value}]")
+    
+    loaded = vector_guard.load_from_disk(config.INDEX_STORAGE_PATH)
+    if loaded:
+        logger.info(f"📂 Índice vectorial cargado desde disco: {len(vector_guard.doc_ids)} documentos.")
+    else:
+        logger.info("📂 Base vectorial inicializada limpia.")
+    yield
+
+app = FastAPI(
+    title="Open Hybrid RAG Gateway",
+    description="Universal Local-First AI Orchestrator with Multi-Cloud Fallback & ASSERT Quality Guard",
+    version="1.2.0",
+    lifespan=lifespan
+)
+
+# Configuración de CORS segura
+cors_origins_list = [o.strip() for o in config.CORS_ORIGINS.split(",") if o.strip()]
+allow_all_origins = "*" in cors_origins_list
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins_list,
+    allow_credentials=not allow_all_origins,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# 🔒 Autenticación de API Key con tiempo constante (Anti-Timing Attack)
 async def verify_api_key(x_api_key: Optional[str] = Header(None)):
     if config.API_KEY:
-        if not x_api_key or x_api_key != config.API_KEY:
+        if not x_api_key or not secrets.compare_digest(x_api_key, config.API_KEY):
             raise HTTPException(status_code=401, detail="API Key inválida o no proporcionada en header X-API-Key.")
     return True
 
@@ -69,16 +89,6 @@ async def traffic_telemetry_middleware(request: Request, call_next):
     response.headers["X-Process-Time-Ms"] = f"{latency_ms:.2f}"
     return response
 
-# Evento de Arranque: Carga de persistencia de vectores
-@app.on_event("startup")
-async def startup_event():
-    logger.info(f"🚀 Iniciando Open Hybrid RAG Gateway en {config.HOST}:{config.PORT} [Modo: {config.PRIVACY_MODE.value}]")
-    loaded = vector_guard.load_from_disk(config.INDEX_STORAGE_PATH)
-    if loaded:
-        logger.info(f"📂 Índice vectorial cargado desde disco: {len(vector_guard.doc_ids)} documentos.")
-    else:
-        logger.info("📂 Base vectorial inicializada limpia.")
-
 # Modelos Pydantic
 class QueryRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=10000, description="Consulta del usuario")
@@ -90,7 +100,7 @@ class QueryRequest(BaseModel):
 class IngestRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=50000)
     doc_id: Optional[str] = None
-    doc_type: str = Field("document", description="'document' (RAG context) | 'qa_cache' (direct bypass)")
+    doc_type: Literal["document"] = Field("document", description="Solo documentos de contexto ('document') son permitidos en ingesta pública.")
     system_prompt: Optional[str] = None
     metadata: Optional[dict] = None
 
@@ -122,7 +132,7 @@ async def health_check():
 
 @app.post("/api/v1/ingest", dependencies=[Depends(verify_api_key)])
 async def ingest_document(req: IngestRequest):
-    """Indexa un documento o par QA validando dimensiones y persistiendo en disco."""
+    """Indexa un documento validando dimensiones y persistiendo en disco de forma segura."""
     vec = await local_engine.get_embedding(req.text)
     if not vec:
         raise HTTPException(
@@ -174,7 +184,6 @@ async def orchestrate_query(req: QueryRequest, request: Request, authorized: boo
     if vec:
         route, best_doc, score = vector_guard.match(vec, system_prompt=req.system_prompt)
 
-    # Forzar nube si el cliente lo solicita
     if req.force_cloud:
         route = "ESCALATE_TO_CLOUD"
 
@@ -205,7 +214,6 @@ async def orchestrate_query(req: QueryRequest, request: Request, authorized: boo
             answer = local_resp
             source = "local_slm_rag"
         else:
-            # Local SLM falló -> Evaluar fallback a cloud respetando privacidad
             if config.PRIVACY_MODE == config.PrivacyMode.LOCAL_ONLY or not req.allow_cloud_fallback:
                 route = "LOCAL_ABSTENTION"
                 answer = "No se encontró evidencia suficiente en la base local y la política de privacidad prohíbe el escalamiento a la nube."
@@ -227,17 +235,13 @@ async def orchestrate_query(req: QueryRequest, request: Request, authorized: boo
     # ESCENARIO C: ESCALATE_TO_CLOUD (Local-First Zero-Shot o Escalamiento Cloud)
     # =========================================================================
     else:
-        # Intentar primero Zero-Shot Local si no se forzó nube
-        tried_local = False
         if not req.force_cloud:
             success, local_resp = await local_engine.generate(req.query, system_prompt=req.system_prompt)
-            tried_local = True
             if success:
                 answer = local_resp
                 route = "RESOLVE_LOCAL_ZERO_SHOT"
                 source = "local_slm_zero_shot"
 
-        # Si no se resolvió localmente:
         if not answer:
             if config.PRIVACY_MODE == config.PrivacyMode.LOCAL_ONLY or not req.allow_cloud_fallback:
                 route = "LOCAL_ABSTENTION"
@@ -263,7 +267,7 @@ async def orchestrate_query(req: QueryRequest, request: Request, authorized: boo
         eval_result = await assert_evaluator.evaluate(req.query, answer, source)
 
     # =========================================================================
-    # 4. Almacenamiento Atómico en Second Brain (Sin bloquear con HTTP 500)
+    # 4. Almacenamiento Atómico en Second Brain
     # =========================================================================
     doc_id = None
     if source not in ("local_vector_cache", "local_privacy_abstention"):
@@ -278,7 +282,6 @@ async def orchestrate_query(req: QueryRequest, request: Request, authorized: boo
             logger.error(f"⚠️ Error al guardar nota Markdown en Second Brain: {e}")
             storage_warning = f"Storage warning: {str(e)}"
 
-        # Incorporar a VectorGuard SOLO si ASSERT aprobó la respuesta o no fue rechazada
         should_cache = True
         if eval_result and eval_result.get("passed") is False:
             should_cache = False

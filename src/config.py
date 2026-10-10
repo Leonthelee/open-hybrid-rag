@@ -14,26 +14,34 @@ logger = logging.getLogger("open_hybrid_rag")
 class PrivacyMode(str, Enum):
     LOCAL_ONLY = "local_only"
     HYBRID = "hybrid"
-    CLOUD_ONLY = "cloud_only"
 
 # Server Settings (Localhost by default for secure isolation)
 HOST = os.getenv("HOST", "127.0.0.1").strip()
 PORT = int(os.getenv("PORT", 8000))
 
-# Security & API Authentication (Optional for local dev, mandatory for shared/production)
+# Security & API Authentication
 API_KEY = os.getenv("API_KEY", "").strip()
+CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*").strip()
 
-# Privacy Guard Validation (Strict normalization & validation)
-_raw_privacy = os.getenv("PRIVACY_MODE", "hybrid").lower().strip().replace("-", "_")
-if _raw_privacy in ("local_only", "local", "strict"):
+# Privacy Guard Strict Validation
+_raw_privacy = os.getenv("PRIVACY_MODE", "hybrid").lower().strip()
+if _raw_privacy == "local_only":
     PRIVACY_MODE = PrivacyMode.LOCAL_ONLY
-elif _raw_privacy in ("cloud_only", "cloud"):
-    PRIVACY_MODE = PrivacyMode.CLOUD_ONLY
-elif _raw_privacy in ("hybrid", "auto", "default"):
+elif _raw_privacy == "hybrid":
     PRIVACY_MODE = PrivacyMode.HYBRID
 else:
-    logger.warning(f"⚠️ PRIVACY_MODE '{_raw_privacy}' desconocido. Aplicando 'local_only' por seguridad por defecto.")
-    PRIVACY_MODE = PrivacyMode.LOCAL_ONLY
+    raise ValueError(
+        f"Invalid PRIVACY_MODE '{_raw_privacy}'. Allowed values are strictly: 'hybrid' or 'local_only'."
+    )
+
+def validate_server_security():
+    """Valida que el servidor no sea expuesto a interfaces de red externas sin autenticación."""
+    is_loopback = HOST in ("127.0.0.1", "localhost", "::1")
+    if not is_loopback and not API_KEY:
+        raise RuntimeError(
+            f"CRITICAL SECURITY CONFIGURATION ERROR: The server is configured to bind to "
+            f"'{HOST}' (non-loopback) without an API_KEY. Set API_KEY in your environment to prevent unauthorized access."
+        )
 
 # Local LLM & Embedding Settings
 # Engine format: "ollama" | "openai_compatible" (LM Studio, vLLM, LocalAI)
