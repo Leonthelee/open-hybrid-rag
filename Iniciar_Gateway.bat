@@ -9,14 +9,16 @@ if not exist ".env" (
     copy .env.example .env
 )
 
-if not exist "venv" (
-    echo [INFO] Creando entorno virtual de Python...
-    python -m venv venv
-    call venv\Scripts\activate
+if exist ".venv\Scripts\activate.bat" (
+    call .venv\Scripts\activate.bat
+) else if exist "venv\Scripts\activate.bat" (
+    call venv\Scripts\activate.bat
+) else (
+    echo [INFO] Creando entorno virtual de Python (.venv)...
+    python -m venv .venv
+    call .venv\Scripts\activate.bat
     echo [INFO] Instalando dependencias...
     pip install -r requirements.txt
-) else (
-    call venv\Scripts\activate
 )
 
 echo [OK] Levantando Gateway en http://localhost:8000 ...

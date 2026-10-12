@@ -227,6 +227,8 @@ class TestFastAPIEndpoints(unittest.TestCase):
         self.storage_patcher.start()
         self.brain_patcher = patch.object(second_brain, "base_path", self.temp_dir)
         self.brain_patcher.start()
+        self.api_key_patcher = patch.object(config, "API_KEY", "")
+        self.api_key_patcher.start()
 
         vector_guard.doc_ids = []
         vector_guard.vectors = []
@@ -236,6 +238,7 @@ class TestFastAPIEndpoints(unittest.TestCase):
         vector_guard._matrix_dirty = True
 
     def tearDown(self):
+        self.api_key_patcher.stop()
         self.storage_patcher.stop()
         self.brain_patcher.stop()
         if os.path.exists(self.temp_dir):
