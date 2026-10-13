@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 
 from harness.policy_gate import PolicyGate, PolicyAction
 from harness.observe_trim import ObserveTrim
-from harness.verifier import Verifier, VerificationVerdict
+from harness.verifier import Verifier, VerificationVerdict, EpistemicCertainty
 
 class TestPolicyGate(unittest.TestCase):
     def setUp(self):
@@ -125,6 +125,34 @@ class TestVerifier(unittest.TestCase):
             model_claimed_done=False
         )
         self.assertEqual(res.verdict, VerificationVerdict.BUDGET_EXCEEDED)
+
+    def test_overconfidence_penalty_when_cierto_claims_fail(self):
+        res = self.verifier.verify(
+            current_turn=1,
+            test_exit_code=1,
+            test_summary="AssertionError: expected 200 got 500",
+            lint_error_count=0,
+            files_modified_count=1,
+            model_claimed_done=True,
+            claimed_certainty=EpistemicCertainty.CIERTO
+        )
+        self.assertEqual(res.verdict, VerificationVerdict.LOOP_AGAIN)
+        self.assertTrue(res.overconfidence_penalty)
+        self.assertIn("PENALIZACIÓN DE SOBRE-CONFIANZA", res.feedback_for_model)
+
+    def test_epistemic_certainty_resolved_on_success(self):
+        res = self.verifier.verify(
+            current_turn=1,
+            test_exit_code=0,
+            test_summary="all passed",
+            lint_error_count=0,
+            files_modified_count=1,
+            model_claimed_done=True,
+            claimed_certainty=EpistemicCertainty.PROBABLE
+        )
+        self.assertEqual(res.verdict, VerificationVerdict.SHIP_IT)
+        self.assertFalse(res.overconfidence_penalty)
+        self.assertEqual(res.epistemic_certainty, EpistemicCertainty.CIERTO)
 
 
 if __name__ == "__main__":

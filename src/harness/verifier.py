@@ -14,6 +14,11 @@ class VerificationVerdict(str, Enum):
     LOOP_AGAIN = "LOOP_AGAIN"           # Fallaron tests o sintaxis -> Forzar nuevo turno con feedback
     BUDGET_EXCEEDED = "BUDGET_EXCEEDED" # Se agotó el presupuesto de turnos -> Abortar para frenar costos
 
+class EpistemicCertainty(str, Enum):
+    CIERTO = "Cierto"        # Verificado empíricamente con tests o código real ejecutado
+    PROBABLE = "Probable"    # Deducción basada en arquitectura o contexto estándar
+    ADIVINANDO = "Adivinando"# Hipótesis o extrapolación sin evidencia directa
+
 class VerificationResult(BaseModel):
     verdict: VerificationVerdict
     tests_passed: bool
@@ -23,6 +28,8 @@ class VerificationResult(BaseModel):
     current_turn: int
     max_turns: int
     feedback_for_model: str
+    epistemic_certainty: Optional[EpistemicCertainty] = None
+    overconfidence_penalty: bool = False
     metrics: Dict[str, Any] = Field(default_factory=dict)
 
 class Verifier:
@@ -36,15 +43,19 @@ class Verifier:
         test_summary: str,
         lint_error_count: int = 0,
         files_modified_count: int = 1,
-        model_claimed_done: bool = True
+        model_claimed_done: bool = True,
+        claimed_certainty: Optional[EpistemicCertainty] = None
     ) -> VerificationResult:
         """
         Inspecciona el estado determinista y emite el veredicto del juez.
+        Valida que el nivel de certeza afirmado ([Cierto], [Probable], [Adivinando])
+        sea coherente con la realidad empírica del sistema.
         """
         tests_passed = (test_exit_code == 0)
         lint_clean = (lint_error_count == 0)
         budget_ok = (current_turn <= self.max_turns)
         has_real_changes = (files_modified_count > 0)
+        overconfidence = (claimed_certainty == EpistemicCertainty.CIERTO and not tests_passed)
 
         # 1. Presupuesto de turnos agotado
         if not budget_ok:
@@ -57,6 +68,8 @@ class Verifier:
                 current_turn=current_turn,
                 max_turns=self.max_turns,
                 feedback_for_model=f"PRESUPUESTO AGOTADO: Se alcanzaron los {self.max_turns} turnos máximos sin estabilizar los tests.",
+                epistemic_certainty=claimed_certainty,
+                overconfidence_penalty=overconfidence,
                 metrics={"current_turn": current_turn, "max_turns": self.max_turns}
             )
 
@@ -71,11 +84,20 @@ class Verifier:
                 current_turn=current_turn,
                 max_turns=self.max_turns,
                 feedback_for_model="RECHAZADO: Declaraste que la tarea está lista pero no se detectaron cambios reales en archivos.",
+                epistemic_certainty=claimed_certainty,
+                overconfidence_penalty=overconfidence,
                 metrics={"files_modified": 0}
             )
 
         # 3. Fallo en tests reales
         if not tests_passed:
+            feedback = f"RECHAZADO 'ALL DONE': Los tests siguen fallando (exit code {test_exit_code}). Corrige la causa raíz:\n{test_summary}"
+            if overconfidence:
+                feedback = (
+                    "⚠️ [PENALIZACIÓN DE SOBRE-CONFIANZA]: Afirmaste certeza [Cierto] pero los tests fallaron. "
+                    "Un modelo solo puede declarar [Cierto] cuando tiene evidencia empírica verificada.\n"
+                    + feedback
+                )
             return VerificationResult(
                 verdict=VerificationVerdict.LOOP_AGAIN,
                 tests_passed=False,
@@ -84,7 +106,9 @@ class Verifier:
                 has_real_changes=has_real_changes,
                 current_turn=current_turn,
                 max_turns=self.max_turns,
-                feedback_for_model=f"RECHAZADO 'ALL DONE': Los tests siguen fallando (exit code {test_exit_code}). Corrige la causa raíz:\n{test_summary}",
+                feedback_for_model=feedback,
+                epistemic_certainty=claimed_certainty,
+                overconfidence_penalty=overconfidence,
                 metrics={"test_exit_code": test_exit_code, "test_summary": test_summary}
             )
 
@@ -99,10 +123,13 @@ class Verifier:
                 current_turn=current_turn,
                 max_turns=self.max_turns,
                 feedback_for_model=f"RECHAZADO: Los tests pasaron pero se detectaron {lint_error_count} errores de linter/sintaxis.",
+                epistemic_certainty=claimed_certainty,
+                overconfidence_penalty=False,
                 metrics={"lint_errors": lint_error_count}
             )
 
         # 5. Éxito determinista total (SHIP IT)
+        resolved_certainty = EpistemicCertainty.CIERTO if tests_passed else (claimed_certainty or EpistemicCertainty.PROBABLE)
         return VerificationResult(
             verdict=VerificationVerdict.SHIP_IT,
             tests_passed=True,
@@ -111,6 +138,8 @@ class Verifier:
             has_real_changes=has_real_changes,
             current_turn=current_turn,
             max_turns=self.max_turns,
-            feedback_for_model=f"APROBADO PARA ENVÍO (SHIP IT): Tests en verde (exit code 0), 0 errores de linter, completado en {current_turn}/{self.max_turns} turnos.",
+            feedback_for_model=f"APROBADO PARA ENVÍO (SHIP IT) [{resolved_certainty.value}]: Tests en verde (exit code 0), 0 errores de linter, completado en {current_turn}/{self.max_turns} turnos.",
+            epistemic_certainty=resolved_certainty,
+            overconfidence_penalty=False,
             metrics={"current_turn": current_turn, "tests_passed": True, "lint_clean": True}
         )
