@@ -8,8 +8,10 @@ import numpy as np
 
 try:
     from . import config
+    from .bm25 import BM25Index, reciprocal_rank_fusion
 except (ImportError, ValueError):
     import config
+    from bm25 import BM25Index, reciprocal_rank_fusion
 
 logger = logging.getLogger("open_hybrid_rag.vector_guard")
 
@@ -27,6 +29,7 @@ class VectorGuard:
         self._matrix_dirty: bool = True
         self.doc_ids: list[str] = []
         self.documents: Dict[str, dict] = {}
+        self.bm25: BM25Index = BM25Index()
 
     @property
     def matrix(self) -> Optional[np.ndarray]:
@@ -96,6 +99,8 @@ class VectorGuard:
             "created_at": datetime.utcnow().isoformat(),
             "metadata": doc_meta
         }
+        # Sincronizar índice léxico BM25
+        self.bm25.add_document(doc_id, text)
         return True
 
     def add_documents_batch(self, batch: List[dict]) -> int:
@@ -118,7 +123,7 @@ class VectorGuard:
         return added
 
     def delete_document(self, doc_id: str) -> bool:
-        """Elimina un documento de la memoria vectorial y metadatos."""
+        """Elimina un documento de la memoria vectorial, léxica y metadatos."""
         if doc_id not in self.documents:
             return False
 
@@ -126,6 +131,7 @@ class VectorGuard:
         self.doc_ids.pop(idx)
         self.vectors.pop(idx)
         del self.documents[doc_id]
+        self.bm25.delete_document(doc_id)
 
         self._matrix_dirty = True
         if len(self.doc_ids) == 0:
@@ -177,6 +183,119 @@ class VectorGuard:
             return "RESOLVE_LOCAL_MED", best_doc, best_score
         else:
             return "ESCALATE_TO_CLOUD", best_doc, best_score
+
+    def hybrid_match(
+        self,
+        query_text: str,
+        query_vector: Optional[list[float]] = None,
+        system_prompt: Optional[str] = None,
+        alpha: float = 0.5,
+        top_k: int = 10
+    ) -> Tuple[str, Optional[dict], float]:
+        """
+        True Hybrid RAG:
+        1. Dense retrieval (similitud coseno vectorial).
+        2. Sparse retrieval (Okapi BM25 léxico para tokens técnicos y exactos).
+        3. Reciprocal Rank Fusion (RRF k=60).
+        4. Resolución de ruta con verificación TTL, boost léxico y aislamiento de System Prompt.
+        """
+        if len(self.doc_ids) == 0:
+            return "ESCALATE_TO_CLOUD", None, 0.0
+
+        dense_scores: Optional[np.ndarray] = None
+        dense_ranks: List[str] = []
+
+        # 1. Dense Scoring
+        mat = self.matrix
+        if query_vector is not None and mat is not None and self.expected_dim is not None:
+            q_vec = np.array(query_vector, dtype=np.float32)
+            if len(q_vec) == self.expected_dim:
+                q_norm = np.linalg.norm(q_vec)
+                if q_norm > 0:
+                    q_vec = q_vec / q_norm
+                dense_scores = np.dot(mat, q_vec)
+                sorted_indices = np.argsort(-dense_scores)
+                dense_ranks = [self.doc_ids[i] for i in sorted_indices]
+
+        # 2. Sparse Okapi BM25 Scoring
+        bm25_scores = self.bm25.score(query_text)
+        if bm25_scores:
+            sparse_ranks = [
+                doc_id for doc_id, _ in sorted(
+                    bm25_scores.items(),
+                    key=lambda item: item[1],
+                    reverse=True
+                )
+            ]
+        else:
+            sparse_ranks = []
+
+        if not dense_ranks and not sparse_ranks:
+            return "ESCALATE_TO_CLOUD", None, 0.0
+
+        # 3. Reciprocal Rank Fusion (RRF)
+        fused = reciprocal_rank_fusion(
+            dense_ranks=dense_ranks,
+            sparse_ranks=sparse_ranks,
+            k=60,
+            weight_dense=alpha,
+            weight_sparse=1.0 - alpha
+        )
+
+        if not fused:
+            return "ESCALATE_TO_CLOUD", None, 0.0
+
+        best_doc_id, rrf_score = fused[0]
+        best_doc = self.documents[best_doc_id]
+
+        # Verificar expiración TTL
+        exp_ts = best_doc.get("metadata", {}).get("expires_at_timestamp")
+        if exp_ts and datetime.utcnow().timestamp() > exp_ts:
+            logger.info(f"[VectorGuard] Documento {best_doc_id} expirado por TTL.")
+            return "ESCALATE_TO_CLOUD", None, 0.0
+
+        best_dense_score = 0.0
+        if dense_scores is not None and best_doc_id in self.doc_ids:
+            idx = self.doc_ids.index(best_doc_id)
+            best_dense_score = float(dense_scores[idx])
+
+        best_bm25_score = float(bm25_scores.get(best_doc_id, 0.0))
+
+        # 4. Cálculo de Score Efectivo (con boost léxico si hay match exacto)
+        if dense_scores is not None:
+            effective_score = best_dense_score
+            if best_bm25_score > 0:
+                lexical_boost = min(0.10, (best_bm25_score / (best_bm25_score + 1.5)) * 0.10)
+                effective_score = min(1.0, best_dense_score + lexical_boost)
+        else:
+            # Fallback puramente léxico cuando no hay embeddings disponibles
+            effective_score = min(1.0, best_bm25_score / (best_bm25_score + 0.8))
+
+        # Enriquecer resultado con métricas híbridas para auditoría
+        doc_result = dict(best_doc)
+        doc_result["retrieval_mode"] = "hybrid"
+        doc_result["hybrid_metrics"] = {
+            "rrf_score": round(rrf_score, 6),
+            "dense_score": round(best_dense_score, 4),
+            "bm25_score": round(best_bm25_score, 4),
+            "effective_score": round(effective_score, 4)
+        }
+
+        # 5. Determinación de Ruta y Verificación de Caché
+        if effective_score >= self.high_threshold:
+            if doc_result.get("type") == "qa_cache":
+                cached_prompt_hash = doc_result.get("metadata", {}).get("system_prompt_hash")
+                if cached_prompt_hash and system_prompt is not None:
+                    current_prompt_hash = self.compute_prompt_hash(system_prompt)
+                    if cached_prompt_hash != current_prompt_hash:
+                        return "RESOLVE_LOCAL_MED", doc_result, effective_score
+                return "RESOLVE_LOCAL_HIGH", doc_result, effective_score
+            else:
+                return "RESOLVE_LOCAL_MED", doc_result, effective_score
+        elif effective_score >= self.min_threshold:
+            return "RESOLVE_LOCAL_MED", doc_result, effective_score
+        else:
+            return "ESCALATE_TO_CLOUD", doc_result, effective_score
 
     def save_to_disk(self, storage_path: str):
         """Persistencia atómica y segura en disco con array de strings para allow_pickle=False."""
@@ -248,6 +367,12 @@ class VectorGuard:
             self.doc_ids = loaded_doc_ids
             self.expected_dim = loaded_dim
             self.documents = loaded_docs
+
+            # Reconstruir índice léxico BM25 en memoria
+            self.bm25 = BM25Index()
+            for d_id, doc_data in self.documents.items():
+                self.bm25.add_document(d_id, doc_data.get("text", ""))
+
             return True
 
         except Exception as e:

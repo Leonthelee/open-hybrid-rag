@@ -254,13 +254,16 @@ async def orchestrate_query(req: QueryRequest, request: Request, authorized: boo
     if not vec:
         local_available = False
 
-    # 2. Evaluación de Ruta Vectorial
+    # 2. Evaluación de Ruta Híbrida (True Hybrid RAG: Denso + Disperso Okapi BM25 + RRF)
     route = "ESCALATE_TO_CLOUD"
     best_doc = None
     score = 0.0
 
-    if vec:
-        route, best_doc, score = vector_guard.match(vec, system_prompt=req.system_prompt)
+    route, best_doc, score = vector_guard.hybrid_match(
+        query_text=req.query,
+        query_vector=vec,
+        system_prompt=req.system_prompt
+    )
 
     if req.force_cloud:
         route = "ESCALATE_TO_CLOUD"
