@@ -8,7 +8,7 @@ from typing import Optional, Dict, Any, Literal, List
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 try:
     from . import config
@@ -17,6 +17,12 @@ try:
     from .cloud_bridge import CloudBridge
     from .second_brain import SecondBrain
     from .assert_evaluator import AssertEvaluator
+    from .security import (
+        SecurityHeadersMiddleware,
+        RateLimitMiddleware,
+        TokenBucketRateLimiter,
+        PayloadSanitizer
+    )
 except (ImportError, ValueError):
     import config
     from vector_guard import VectorGuard
@@ -24,6 +30,12 @@ except (ImportError, ValueError):
     from cloud_bridge import CloudBridge
     from second_brain import SecondBrain
     from assert_evaluator import AssertEvaluator
+    from security import (
+        SecurityHeadersMiddleware,
+        RateLimitMiddleware,
+        TokenBucketRateLimiter,
+        PayloadSanitizer
+    )
 
 logger = logging.getLogger("open_hybrid_rag.main")
 
@@ -36,6 +48,10 @@ local_engine = LocalEngine()
 cloud_bridge = CloudBridge()
 second_brain = SecondBrain()
 assert_evaluator = AssertEvaluator()
+rate_limiter = TokenBucketRateLimiter(
+    capacity=config.RATE_LIMIT_CAPACITY,
+    refill_rate=config.RATE_LIMIT_REFILL_RATE
+)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -69,6 +85,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 🛡️ Endurecimiento de Seguridad HTTP y Rate Limiting
+if config.RATE_LIMIT_ENABLED:
+    app.add_middleware(RateLimitMiddleware, limiter=rate_limiter)
+
+if config.SECURITY_HEADERS_ENABLED:
+    app.add_middleware(SecurityHeadersMiddleware)
+
 # 🔒 Autenticación de API Key con tiempo constante (Anti-Timing Attack)
 async def verify_api_key(x_api_key: Optional[str] = Header(None)):
     if config.API_KEY:
@@ -98,6 +121,11 @@ class QueryRequest(BaseModel):
     force_cloud: bool = False
     audit_assert: bool = False
 
+    @field_validator("query")
+    @classmethod
+    def validate_query_safety(cls, v: str) -> str:
+        return PayloadSanitizer.sanitize_text(v, field_name="query")
+
 class IngestRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=50000)
     doc_id: Optional[str] = None
@@ -105,6 +133,11 @@ class IngestRequest(BaseModel):
     system_prompt: Optional[str] = None
     ttl_seconds: Optional[int] = None
     metadata: Optional[dict] = None
+
+    @field_validator("text")
+    @classmethod
+    def validate_text_safety(cls, v: str) -> str:
+        return PayloadSanitizer.sanitize_text(v, field_name="text")
 
 class BatchIngestRequest(BaseModel):
     documents: List[IngestRequest] = Field(..., min_items=1, max_items=1000)
