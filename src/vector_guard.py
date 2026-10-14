@@ -2,7 +2,7 @@ import os
 import json
 import hashlib
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Tuple, Dict, Any, List
 import numpy as np
 
@@ -296,6 +296,59 @@ class VectorGuard:
             return "RESOLVE_LOCAL_MED", doc_result, effective_score
         else:
             return "ESCALATE_TO_CLOUD", doc_result, effective_score
+
+    def rank_candidates(
+        self,
+        query_text: str,
+        query_vector: Optional[list[float]] = None,
+        alpha: float = 0.5,
+        top_k: int = 10
+    ) -> Dict[str, List[str]]:
+        """
+        Retorna los rankings ordenados de IDs de documentos para los tres modos de recuperación:
+        'dense' (similitud coseno), 'sparse' (Okapi BM25) e 'hybrid' (Reciprocal Rank Fusion RRF k=60).
+        """
+        if len(self.doc_ids) == 0:
+            return {"dense": [], "sparse": [], "hybrid": []}
+
+        dense_ranks: List[str] = []
+        mat = self.matrix
+        if query_vector is not None and mat is not None and self.expected_dim is not None:
+            q_vec = np.array(query_vector, dtype=np.float32)
+            if len(q_vec) == self.expected_dim:
+                q_norm = np.linalg.norm(q_vec)
+                if q_norm > 0:
+                    q_vec = q_vec / q_norm
+                dense_scores = np.dot(mat, q_vec)
+                sorted_indices = np.argsort(-dense_scores)
+                dense_ranks = [self.doc_ids[i] for i in sorted_indices]
+
+        bm25_scores = self.bm25.score(query_text)
+        if bm25_scores:
+            sparse_ranks = [
+                doc_id for doc_id, _ in sorted(
+                    bm25_scores.items(),
+                    key=lambda item: item[1],
+                    reverse=True
+                )
+            ]
+        else:
+            sparse_ranks = []
+
+        fused = reciprocal_rank_fusion(
+            dense_ranks=dense_ranks,
+            sparse_ranks=sparse_ranks,
+            k=60,
+            weight_dense=alpha,
+            weight_sparse=1.0 - alpha
+        )
+        hybrid_ranks = [doc_id for doc_id, _ in fused]
+
+        return {
+            "dense": dense_ranks[:top_k],
+            "sparse": sparse_ranks[:top_k],
+            "hybrid": hybrid_ranks[:top_k]
+        }
 
     def save_to_disk(self, storage_path: str):
         """Persistencia atómica y segura en disco con array de strings para allow_pickle=False."""

@@ -1,0 +1,326 @@
+{
+  "total_queries": 12,
+  "metrics": {
+    "dense_only": {
+      "hit1_percent": 83.33,
+      "hit3_percent": 91.67,
+      "mrr": 0.8611
+    },
+    "sparse_only": {
+      "hit1_percent": 91.67,
+      "hit3_percent": 91.67,
+      "mrr": 0.9167
+    },
+    "true_hybrid_rrf": {
+      "hit1_percent": 83.33,
+      "hit3_percent": 91.67,
+      "mrr": 0.875
+    }
+  },
+  "latency": {
+    "p50_ms": 0.17,
+    "mean_ms": 0.2
+  },
+  "details": [
+    {
+      "id": "Q01",
+      "query": "¿Cómo mitigar ataques de Server Side Request Forgery SSRF en arquitecturas API?",
+      "expected_id": "sec-owasp-api-top10-2023",
+      "domain": "OWASP_API",
+      "dense": {
+        "pos": 1,
+        "hit1": 1,
+        "hit3": 1,
+        "rr": 1.0
+      },
+      "sparse": {
+        "pos": 1,
+        "hit1": 1,
+        "hit3": 1,
+        "rr": 1.0
+      },
+      "hybrid": {
+        "pos": 1,
+        "hit1": 1,
+        "hit3": 1,
+        "rr": 1.0
+      },
+      "latency_ms": 0.28
+    },
+    {
+      "id": "Q02",
+      "query": "¿Qué control técnico exige no ejecutar contenedores Docker con usuario root UID 0?",
+      "expected_id": "sec-cis-docker-container-hardening",
+      "domain": "CIS_DOCKER",
+      "dense": {
+        "pos": 1,
+        "hit1": 1,
+        "hit3": 1,
+        "rr": 1.0
+      },
+      "sparse": {
+        "pos": 1,
+        "hit1": 1,
+        "hit3": 1,
+        "rr": 1.0
+      },
+      "hybrid": {
+        "pos": 1,
+        "hit1": 1,
+        "hit3": 1,
+        "rr": 1.0
+      },
+      "latency_ms": 0.19
+    },
+    {
+      "id": "Q03",
+      "query": "Parámetros sysctl recomendados para mitigar inundación SYN flood y spoofing de IP",
+      "expected_id": "sec-cis-linux-os-hardening",
+      "domain": "CIS_LINUX",
+      "dense": {
+        "pos": 1,
+        "hit1": 1,
+        "hit3": 1,
+        "rr": 1.0
+      },
+      "sparse": {
+        "pos": 1,
+        "hit1": 1,
+        "hit3": 1,
+        "rr": 1.0
+      },
+      "hybrid": {
+        "pos": 1,
+        "hit1": 1,
+        "hit3": 1,
+        "rr": 1.0
+      },
+      "latency_ms": 0.4
+    },
+    {
+      "id": "Q04",
+      "query": "Mitigación M1038 para prevenir ejecución de scripts y binarios no autorizados",
+      "expected_id": "sec-mitre-attack-enterprise-mitigations",
+      "domain": "MITRE_ATTACK",
+      "dense": {
+        "pos": 1,
+        "hit1": 1,
+        "hit3": 1,
+        "rr": 1.0
+      },
+      "sparse": {
+        "pos": 1,
+        "hit1": 1,
+        "hit3": 1,
+        "rr": 1.0
+      },
+      "hybrid": {
+        "pos": 1,
+        "hit1": 1,
+        "hit3": 1,
+        "rr": 1.0
+      },
+      "latency_ms": 0.15
+    },
+    {
+      "id": "Q05",
+      "query": "¿Qué directivas de cookies seguras con flags Secure, HttpOnly y SameSite exige WSTG?",
+      "expected_id": "sec-owasp-wstg-web-testing",
+      "domain": "OWASP_WSTG",
+      "dense": {
+        "pos": 1,
+        "hit1": 1,
+        "hit3": 1,
+        "rr": 1.0
+      },
+      "sparse": {
+        "pos": 1,
+        "hit1": 1,
+        "hit3": 1,
+        "rr": 1.0
+      },
+      "hybrid": {
+        "pos": 1,
+        "hit1": 1,
+        "hit3": 1,
+        "rr": 1.0
+      },
+      "latency_ms": 0.18
+    },
+    {
+      "id": "Q06",
+      "query": "Aislamiento de tráfico entre pods y namespaces mediante NetworkPolicies en Kubernetes",
+      "expected_id": "sec-cis-kubernetes-v18-hardening",
+      "domain": "CIS_K8S",
+      "dense": {
+        "pos": 999,
+        "hit1": 0,
+        "hit3": 0,
+        "rr": 0.0
+      },
+      "sparse": {
+        "pos": 999,
+        "hit1": 0,
+        "hit3": 0,
+        "rr": 0.0
+      },
+      "hybrid": {
+        "pos": 999,
+        "hit1": 0,
+        "hit3": 0,
+        "rr": 0.0
+      },
+      "latency_ms": 0.15
+    },
+    {
+      "id": "Q07",
+      "query": "Defensa contra Mass Assignment y Broken Object Property Level Authorization BOPLA en Pydantic",
+      "expected_id": "sec-owasp-api-top10-2023",
+      "domain": "OWASP_API",
+      "dense": {
+        "pos": 1,
+        "hit1": 1,
+        "hit3": 1,
+        "rr": 1.0
+      },
+      "sparse": {
+        "pos": 1,
+        "hit1": 1,
+        "hit3": 1,
+        "rr": 1.0
+      },
+      "hybrid": {
+        "pos": 1,
+        "hit1": 1,
+        "hit3": 1,
+        "rr": 1.0
+      },
+      "latency_ms": 0.25
+    },
+    {
+      "id": "Q08",
+      "query": "Eliminar todas las capacidades del kernel de Linux con directiva cap_drop ALL en compose",
+      "expected_id": "sec-cis-docker-container-hardening",
+      "domain": "CIS_DOCKER",
+      "dense": {
+        "pos": 1,
+        "hit1": 1,
+        "hit3": 1,
+        "rr": 1.0
+      },
+      "sparse": {
+        "pos": 1,
+        "hit1": 1,
+        "hit3": 1,
+        "rr": 1.0
+      },
+      "hybrid": {
+        "pos": 1,
+        "hit1": 1,
+        "hit3": 1,
+        "rr": 1.0
+      },
+      "latency_ms": 0.15
+    },
+    {
+      "id": "Q09",
+      "query": "Configuración de máscara de permisos umask 027 y partición /tmp con flag noexec",
+      "expected_id": "sec-cis-linux-os-hardening",
+      "domain": "CIS_LINUX",
+      "dense": {
+        "pos": 3,
+        "hit1": 0,
+        "hit3": 1,
+        "rr": 0.3333333333333333
+      },
+      "sparse": {
+        "pos": 1,
+        "hit1": 1,
+        "hit3": 1,
+        "rr": 1.0
+      },
+      "hybrid": {
+        "pos": 2,
+        "hit1": 0,
+        "hit3": 1,
+        "rr": 0.5
+      },
+      "latency_ms": 0.17
+    },
+    {
+      "id": "Q10",
+      "query": "Desactivar versiones obsoletas de TLS y forzar suites AEAD con HSTS según WSTG-CRYP",
+      "expected_id": "sec-owasp-wstg-web-testing",
+      "domain": "OWASP_WSTG",
+      "dense": {
+        "pos": 1,
+        "hit1": 1,
+        "hit3": 1,
+        "rr": 1.0
+      },
+      "sparse": {
+        "pos": 1,
+        "hit1": 1,
+        "hit3": 1,
+        "rr": 1.0
+      },
+      "hybrid": {
+        "pos": 1,
+        "hit1": 1,
+        "hit3": 1,
+        "rr": 1.0
+      },
+      "latency_ms": 0.15
+    },
+    {
+      "id": "Q11",
+      "query": "Restringir el uso de cuentas privilegiadas y aislar dominios administrativos M1026",
+      "expected_id": "sec-mitre-attack-enterprise-mitigations",
+      "domain": "MITRE_ATTACK",
+      "dense": {
+        "pos": 1,
+        "hit1": 1,
+        "hit3": 1,
+        "rr": 1.0
+      },
+      "sparse": {
+        "pos": 1,
+        "hit1": 1,
+        "hit3": 1,
+        "rr": 1.0
+      },
+      "hybrid": {
+        "pos": 1,
+        "hit1": 1,
+        "hit3": 1,
+        "rr": 1.0
+      },
+      "latency_ms": 0.16
+    },
+    {
+      "id": "Q12",
+      "query": "Montar el sistema de archivos raíz del contenedor en solo lectura con read_only true",
+      "expected_id": "sec-cis-docker-container-hardening",
+      "domain": "CIS_DOCKER",
+      "dense": {
+        "pos": 1,
+        "hit1": 1,
+        "hit3": 1,
+        "rr": 1.0
+      },
+      "sparse": {
+        "pos": 1,
+        "hit1": 1,
+        "hit3": 1,
+        "rr": 1.0
+      },
+      "hybrid": {
+        "pos": 1,
+        "hit1": 1,
+        "hit3": 1,
+        "rr": 1.0
+      },
+      "latency_ms": 0.16
+    }
+  ]
+}

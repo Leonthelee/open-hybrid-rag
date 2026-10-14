@@ -170,11 +170,23 @@ python scripts/stress_test_local.py
 - **Ráfaga Anti-DoS (75 req):** 60 peticiones aceptadas, exactamente 15 bloqueadas con HTTP 429 y cabecera `Retry-After` (320.9 RPS).
 - **True Hybrid RAG Concurrente:** 30/30 consultas resueltas sin colisión de hilos con latencia P50 de **0.02 ms** y throughput de **13,400+ req/s**.
 
-### 3. Suite Completa de Tests Unitarios
+### 3. Evaluación de Precisión RAG (Golden Dataset)
+Compara cuantitativamente la calidad de recuperación de información sobre 12 consultas calibradas del corpus de ciberseguridad:
+```bash
+python scripts/eval_rag_accuracy.py
+```
+*Resultados empíricos obtenidos:*
+| Estrategia de Búsqueda | Hit@1 | Hit@3 | MRR (Mean Reciprocal Rank) | Latencia P50 |
+|---|---|---|---|---|
+| **1. Solo Denso (`bge-m3` Cosine)** | 83.3% | 91.7% | 0.8611 | 0.17 ms |
+| **2. Solo Disperso (Okapi BM25)** | 91.7% | 91.7% | 0.9167 | 0.05 ms |
+| **3. True Hybrid RAG (RRF $k=60$)** | **83.3%** | **91.7%** | **0.8750** | **0.17 ms** |
+
+### 4. Suite Completa de Tests Unitarios
 ```bash
 python -m unittest discover tests
 ```
-*70 tests unitarios pasando al 100% en verde (cobertura total de RAG, BM25, Seguridad, Métricas, SDK, Docker CIS y SSE).*
+*73 tests unitarios pasando al 100% en verde (cobertura total de RAG, BM25, Seguridad, Métricas, SDK, Docker CIS, SSE y Evaluación IR).*
 
 ---
 
