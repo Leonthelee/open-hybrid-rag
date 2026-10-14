@@ -7,6 +7,8 @@ Soporte completo Síncrono y Asíncrono con:
 - Modelos estructurados para respuestas y telemetría.
 - Inyección de cabeceras de seguridad y trazabilidad (X-API-Key, X-Request-ID).
 """
+from __future__ import annotations
+
 import time
 import random
 import logging

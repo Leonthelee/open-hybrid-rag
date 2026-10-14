@@ -33,4 +33,4 @@ jobs:
 
       - name: Syntax & Compilation Check
         run: |
-          python -m py_compile src/*.py benchmark/*.py
+          python -m compileall src sdk benchmark
