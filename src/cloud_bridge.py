@@ -26,20 +26,26 @@ class CloudBridge:
         self.model = model or config.PROVIDER_DEFAULT_MODELS.get(self.provider, "gemini-2.0-flash")
         self.max_tokens = max_tokens
 
-    async def generate(self, prompt: str, system_instruction: Optional[str] = None) -> Tuple[bool, str]:
+    async def generate(
+        self,
+        prompt: str,
+        system_instruction: Optional[str] = None,
+        system_prompt: Optional[str] = None
+    ) -> Tuple[bool, str]:
         """
         Invocación a la nube con verificación de código y estados de terminación.
         Retorna: (success: bool, response_or_error: str)
         """
+        target_sys = system_instruction or system_prompt
         if not self.api_key:
             return False, f"CLOUD_API_KEY no está configurada o contiene un placeholder para el proveedor '{self.provider}'."
 
         if self.provider == "gemini":
-            return await self._call_gemini(prompt, system_instruction)
+            return await self._call_gemini(prompt, target_sys)
         elif self.provider in ("openai", "groq", "deepseek"):
-            return await self._call_openai_compatible(prompt, system_instruction)
+            return await self._call_openai_compatible(prompt, target_sys)
         elif self.provider == "anthropic":
-            return await self._call_anthropic(prompt, system_instruction)
+            return await self._call_anthropic(prompt, target_sys)
         else:
             return False, f"Proveedor cloud '{self.provider}' no reconocido."
 

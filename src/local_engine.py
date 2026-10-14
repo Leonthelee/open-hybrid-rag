@@ -73,7 +73,7 @@ class LocalEngine:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
-        async with httpx.AsyncClient(timeout=90.0) as client:
+        async with httpx.AsyncClient(timeout=180.0) as client:
             try:
                 if self.engine_type == "ollama":
                     r = await client.post(

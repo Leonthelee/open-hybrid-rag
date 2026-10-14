@@ -9,6 +9,13 @@ import sys
 import time
 import hashlib
 from typing import List, Dict, Any
+
+if sys.platform == "win32":
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8")
+
 from fastapi.testclient import TestClient
 
 # Asegurar importación de módulos del proyecto

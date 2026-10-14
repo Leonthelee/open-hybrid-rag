@@ -11,7 +11,7 @@ import time
 import random
 import logging
 import json
-from typing import Optional, Dict, Any, List, Union, Iterator, AsyncIterator
+from typing import Optional, Dict, Any, List, Union, Iterator, AsyncIterator, Tuple
 from dataclasses import dataclass, field
 import httpx
 
