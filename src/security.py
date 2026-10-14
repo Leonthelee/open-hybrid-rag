@@ -155,8 +155,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self.limiter = limiter
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        # Permitir rutas de sondeo de salud y documentación OpenAPI sin agotar cuota principal
-        exempt_paths = ("/", "/health", "/docs", "/openapi.json", "/redoc")
+        # Permitir rutas de sondeo de salud, métricas y documentación sin agotar cuota principal
+        exempt_paths = ("/", "/health", "/metrics", "/docs", "/openapi.json", "/redoc")
         if request.url.path in exempt_paths:
             return await call_next(request)
 
@@ -164,6 +164,12 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         allowed, remaining, reset_secs, retry_after = self.limiter.check_rate_limit(client_id, cost=1.0)
 
         if not allowed:
+            try:
+                from .telemetry import metrics_collector
+            except (ImportError, ValueError):
+                from telemetry import metrics_collector
+            metrics_collector.inc_counter("rate_limit_exceeded_total")
+
             # Respuesta HTTP 429 Too Many Requests estándar
             content = (
                 f'{{"error": "Too Many Requests", '

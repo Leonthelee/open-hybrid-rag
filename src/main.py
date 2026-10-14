@@ -6,7 +6,7 @@ import logging
 from datetime import datetime
 from typing import Optional, Dict, Any, Literal, List
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, HTTPException, Depends, Header
+from fastapi import FastAPI, Request, Response, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 
@@ -23,6 +23,7 @@ try:
         TokenBucketRateLimiter,
         PayloadSanitizer
     )
+    from .telemetry import metrics_collector
 except (ImportError, ValueError):
     import config
     from vector_guard import VectorGuard
@@ -36,6 +37,7 @@ except (ImportError, ValueError):
         TokenBucketRateLimiter,
         PayloadSanitizer
     )
+    from telemetry import metrics_collector
 
 logger = logging.getLogger("open_hybrid_rag.main")
 
@@ -64,6 +66,8 @@ async def lifespan(app: FastAPI):
         logger.info(f"📂 Índice vectorial cargado desde disco: {len(vector_guard.doc_ids)} documentos.")
     else:
         logger.info("📂 Base vectorial inicializada limpia.")
+    metrics_collector.set_gauge("indexed_documents_total", len(vector_guard.doc_ids))
+    metrics_collector.set_gauge("bm25_documents_total", vector_guard.bm25.doc_count)
     yield
 
 app = FastAPI(
@@ -108,9 +112,18 @@ async def traffic_telemetry_middleware(request: Request, call_next):
 
     response = await call_next(request)
 
-    latency_ms = (time.perf_counter() - start_time) * 1000
+    latency_sec = time.perf_counter() - start_time
+    latency_ms = latency_sec * 1000
     response.headers["X-Request-ID"] = req_id
     response.headers["X-Process-Time-Ms"] = f"{latency_ms:.2f}"
+
+    metrics_collector.inc_counter(
+        "http_requests_total",
+        method=request.method,
+        path=request.url.path,
+        status=str(response.status_code)
+    )
+    metrics_collector.observe_duration("http_request_duration", latency_sec)
     return response
 
 # Modelos Pydantic
@@ -155,6 +168,16 @@ async def health_check():
         "indexed_documents": len(vector_guard.doc_ids),
         "timestamp": datetime.utcnow().isoformat()
     }
+
+@app.get("/metrics")
+async def prometheus_metrics():
+    """Endpoint de telemetría y métricas en formato estándar Prometheus."""
+    metrics_collector.set_gauge("indexed_documents_total", len(vector_guard.doc_ids))
+    metrics_collector.set_gauge("bm25_documents_total", vector_guard.bm25.doc_count)
+    return Response(
+        content=metrics_collector.export_prometheus(),
+        media_type="text/plain; version=0.0.4; charset=utf-8"
+    )
 
 @app.get("/api/v1/config", dependencies=[Depends(verify_api_key)])
 async def get_system_config():
@@ -206,6 +229,9 @@ async def ingest_document(req: IngestRequest):
             metadata=req.metadata
         )
         await asyncio.to_thread(vector_guard.save_to_disk, config.INDEX_STORAGE_PATH)
+        metrics_collector.inc_counter("ingested_documents_total", doc_type=req.doc_type)
+        metrics_collector.set_gauge("indexed_documents_total", len(vector_guard.doc_ids))
+        metrics_collector.set_gauge("bm25_documents_total", vector_guard.bm25.doc_count)
     except ValueError as val_err:
         raise HTTPException(status_code=400, detail=str(val_err))
     except Exception as e:
@@ -246,6 +272,9 @@ async def ingest_documents_batch(req: BatchIngestRequest):
     added = vector_guard.add_documents_batch(prepared_docs)
     if added > 0:
         await asyncio.to_thread(vector_guard.save_to_disk, config.INDEX_STORAGE_PATH)
+        metrics_collector.inc_counter("ingested_documents_total", doc_type="document", value=float(added))
+        metrics_collector.set_gauge("indexed_documents_total", len(vector_guard.doc_ids))
+        metrics_collector.set_gauge("bm25_documents_total", vector_guard.bm25.doc_count)
 
     return {
         "status": "batch_indexed",
@@ -425,6 +454,10 @@ async def orchestrate_query(req: QueryRequest, request: Request, authorized: boo
                 logger.error(f"⚠️ Error al actualizar VectorGuard: {e}")
                 if not storage_warning:
                     storage_warning = f"Vector index persistence warning: {str(e)}"
+
+    metrics_collector.inc_counter("orchestrator_queries_total", route=route, source=source)
+    if "cloud" in source:
+        metrics_collector.inc_counter("cloud_escalations_total", provider=config.CLOUD_PROVIDER)
 
     return {
         "request_id": request.state.req_id,
