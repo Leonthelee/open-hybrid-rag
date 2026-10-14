@@ -1,6 +1,7 @@
 import httpx
 import logging
-from typing import Optional, Tuple
+import json
+from typing import Optional, Tuple, AsyncIterator
 try:
     from . import config
 except (ImportError, ValueError):
@@ -92,3 +93,65 @@ class LocalEngine:
                     return False, f"LOCAL_HTTP_{r.status_code}: {r.text}"
             except Exception as e:
                 return False, f"LOCAL_CONNECT_ERROR: {str(e)}"
+
+    async def generate_stream(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        model: str = config.LOCAL_LLM_MODEL
+    ) -> AsyncIterator[str]:
+        """Transmite tokens en tiempo real desde el motor local (Ollama o endpoint OpenAI-compatible)."""
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            try:
+                if self.engine_type == "ollama":
+                    async with client.stream(
+                        "POST",
+                        self.llm_url,
+                        json={"model": model, "messages": messages, "stream": True}
+                    ) as response:
+                        if response.status_code != 200:
+                            yield f"LOCAL_HTTP_{response.status_code}"
+                            return
+                        async for line in response.aiter_lines():
+                            if not line:
+                                continue
+                            try:
+                                chunk = json.loads(line)
+                                token = chunk.get("message", {}).get("content", "")
+                                if token:
+                                    yield token
+                            except Exception:
+                                pass
+                else:
+                    async with client.stream(
+                        "POST",
+                        self.llm_url,
+                        json={"model": model, "messages": messages, "stream": True}
+                    ) as response:
+                        if response.status_code != 200:
+                            yield f"LOCAL_HTTP_{response.status_code}"
+                            return
+                        async for line in response.aiter_lines():
+                            if not line:
+                                continue
+                            line_str = line.strip()
+                            if line_str.startswith("data: "):
+                                data_part = line_str[6:].strip()
+                                if data_part == "[DONE]":
+                                    break
+                                try:
+                                    chunk = json.loads(data_part)
+                                    token = chunk.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                                    if token:
+                                        yield token
+                                except Exception:
+                                    pass
+            except Exception as e:
+                logger.error(f"Streaming error en LocalEngine: {e}")
+                yield f"LOCAL_STREAM_ERROR: {str(e)}"
+

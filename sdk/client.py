@@ -10,7 +10,8 @@ Soporte completo Síncrono y Asíncrono con:
 import time
 import random
 import logging
-from typing import Optional, Dict, Any, List, Union
+import json
+from typing import Optional, Dict, Any, List, Union, Iterator, AsyncIterator
 from dataclasses import dataclass, field
 import httpx
 
@@ -228,6 +229,51 @@ class OpenHybridRAGClient:
             retries_made=retries
         )
 
+    def stream_query(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = "Eres un asistente de ingeniería directo, claro y estructurado.",
+        allow_cloud_fallback: bool = True,
+        force_cloud: bool = False,
+        audit_assert: bool = False
+    ) -> Iterator[Dict[str, Any]]:
+        """
+        Envía una consulta con streaming Server-Sent Events (SSE) en tiempo real.
+        Genera diccionarios estructurados: {'event': 'meta'|'token'|'done', 'data': {...}}
+        """
+        payload = {
+            "query": prompt,
+            "system_prompt": system_prompt,
+            "allow_cloud_fallback": allow_cloud_fallback,
+            "force_cloud": force_cloud,
+            "audit_assert": audit_assert
+        }
+        resp = self._client.post("/api/v1/orchestrate/stream", json=payload)
+        if resp.status_code == 429:
+            retry_after = float(resp.headers.get("Retry-After", 1.0))
+            time.sleep(retry_after + random.uniform(0.05, 0.25))
+            resp = self._client.post("/api/v1/orchestrate/stream", json=payload)
+
+        if resp.status_code != 200:
+            raise APIError(resp.status_code, resp.text)
+
+        current_event = None
+        for line in resp.iter_lines():
+            if not line:
+                continue
+            if isinstance(line, bytes):
+                line = line.decode("utf-8")
+            line = line.strip()
+            if line.startswith("event: "):
+                current_event = line[7:].strip()
+            elif line.startswith("data: "):
+                raw_data = line[6:].strip()
+                try:
+                    data = json.loads(raw_data)
+                except Exception:
+                    data = raw_data
+                yield {"event": current_event or "message", "data": data}
+
     def ingest(
         self,
         text: str,
@@ -414,3 +460,67 @@ class AsyncOpenHybridRAGClient:
         if resp.status_code != 200:
             raise APIError(resp.status_code, resp.text)
         return resp.json()
+
+    async def stream_query(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = "Eres un asistente de ingeniería directo, claro y estructurado.",
+        allow_cloud_fallback: bool = True,
+        force_cloud: bool = False,
+        audit_assert: bool = False
+    ) -> AsyncIterator[Dict[str, Any]]:
+        """
+        Envía una consulta asincrónica con streaming Server-Sent Events (SSE) en tiempo real.
+        Genera diccionarios estructurados: {'event': 'meta'|'token'|'done', 'data': {...}}
+        """
+        import asyncio
+        payload = {
+            "query": prompt,
+            "system_prompt": system_prompt,
+            "allow_cloud_fallback": allow_cloud_fallback,
+            "force_cloud": force_cloud,
+            "audit_assert": audit_assert
+        }
+        async with self._client.stream("POST", "/api/v1/orchestrate/stream", json=payload) as response:
+            if response.status_code == 429:
+                retry_after = float(response.headers.get("Retry-After", 1.0))
+                await asyncio.sleep(retry_after + random.uniform(0.05, 0.25))
+                async with self._client.stream("POST", "/api/v1/orchestrate/stream", json=payload) as retry_resp:
+                    if retry_resp.status_code != 200:
+                        body = await retry_resp.aread()
+                        raise APIError(retry_resp.status_code, body.decode("utf-8"))
+                    current_event = None
+                    async for line in retry_resp.aiter_lines():
+                        if not line:
+                            continue
+                        line = line.strip()
+                        if line.startswith("event: "):
+                            current_event = line[7:].strip()
+                        elif line.startswith("data: "):
+                            raw_data = line[6:].strip()
+                            try:
+                                data = json.loads(raw_data)
+                            except Exception:
+                                data = raw_data
+                            yield {"event": current_event or "message", "data": data}
+                return
+
+            if response.status_code != 200:
+                body = await response.aread()
+                raise APIError(response.status_code, body.decode("utf-8"))
+
+            current_event = None
+            async for line in response.aiter_lines():
+                if not line:
+                    continue
+                line = line.strip()
+                if line.startswith("event: "):
+                    current_event = line[7:].strip()
+                elif line.startswith("data: "):
+                    raw_data = line[6:].strip()
+                    try:
+                        data = json.loads(raw_data)
+                    except Exception:
+                        data = raw_data
+                    yield {"event": current_event or "message", "data": data}
+

@@ -1,6 +1,6 @@
 import httpx
 import logging
-from typing import Optional, Tuple
+from typing import Optional, Tuple, AsyncIterator
 try:
     from . import config
 except (ImportError, ValueError):
@@ -168,3 +168,18 @@ class CloudBridge:
                 return False, f"HTTP_{resp.status_code}: {resp.text}"
             except Exception as e:
                 return False, f"NETWORK_ERROR: {str(e)}"
+
+    async def generate_stream(
+        self,
+        prompt: str,
+        system_instruction: Optional[str] = None
+    ) -> AsyncIterator[str]:
+        """Transmite tokens desde el proveedor cloud en fragmentos estructurados."""
+        success, full_resp = await self.generate(prompt, system_instruction)
+        if not success:
+            yield f"CLOUD_ERROR: {full_resp}"
+            return
+        words = full_resp.split(" ")
+        for i, word in enumerate(words):
+            yield word + (" " if i < len(words) - 1 else "")
+

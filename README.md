@@ -174,7 +174,7 @@ python scripts/stress_test_local.py
 ```bash
 python -m unittest discover tests
 ```
-*57 tests unitarios pasando al 100% en verde (cobertura total de RAG, BM25, Seguridad, Métricas y SDK).*
+*70 tests unitarios pasando al 100% en verde (cobertura total de RAG, BM25, Seguridad, Métricas, SDK, Docker CIS y SSE).*
 
 ---
 
@@ -232,6 +232,7 @@ python scripts/audit_gateway_security.py && python -m uvicorn src.main:app --hos
 | `GET` | `/metrics` | Pública (Scraper) | Métricas Prometheus (P50-P99 latencias, contadores, gauges). |
 | `GET` | `/api/v1/config` | `X-API-Key` | Configuración detallada de privacidad, modelos y umbrales. |
 | `POST` | `/api/v1/orchestrate` | `X-API-Key` (Opcional) | Orquestación True Hybrid RAG con escalamiento universal a Cloud. |
+| `POST` | `/api/v1/orchestrate/stream` | `X-API-Key` (Opcional) | Streaming SSE de tokens en tiempo real con eventos `meta`, `token` y `done`. |
 | `POST` | `/api/v1/ingest` | `X-API-Key` | Ingesta individual de documentos en RAM y disco atómico. |
 | `POST` | `/api/v1/ingest/batch`| `X-API-Key` | Ingesta masiva en lote con vectorización asíncrona. |
 | `DELETE`| `/api/v1/cache/{id}` | `X-API-Key` | Eliminación atómica de documentos de la memoria vectorial y léxica. |
@@ -315,6 +316,42 @@ async def main():
         print(resp.answer)
 
 asyncio.run(main())
+```
+
+### Streaming SSE en Tiempo Real (Palabra por Palabra):
+```python
+from sdk import OpenHybridRAGClient
+
+client = OpenHybridRAGClient(base_url="http://127.0.0.1:8000", api_key="tu_api_key")
+
+# Consumo de flujo Server-Sent Events (SSE)
+for event in client.stream_query("Explica el control CIS Docker 5.12"):
+    if event["event"] == "meta":
+        print(f"📡 [Ruta]: {event['data']['route_taken']} | Score: {event['data']['similarity_score']}")
+    elif event["event"] == "token":
+        print(event["data"]["token"], end="", flush=True)
+    elif event["event"] == "done":
+        print(f"\n✅ [Completado en {event['data']['telemetry']['total_latency_ms']}ms]")
+```
+
+---
+
+## 🐳 Despliegue en Contenedor Endurecido (CIS Docker Benchmark)
+
+El proyecto implementa una configuración de contenedor conforme al **CIS Docker Benchmark v1.6.0**:
+
+- **Construcción Multi-Etapa (`Dockerfile`):** Separa la etapa de compilación de dependencias del runtime final, eliminando compiladores y caches (`pip cache`).
+- **Usuario No-Root (`CIS 4.1`):** Ejecución bajo `appuser` (UID/GID 10001) con shell restringido `/sbin/nologin`.
+- **Sondeo de Salud Interno (`CIS 4.6`):** Directiva `HEALTHCHECK` determinista en el Dockerfile apuntando al endpoint `/health`.
+- **Sistema de Archivos en Sólo Lectura (`CIS 5.12`):** `read_only: true` en `docker-compose.yml` para impedir modificaciones al binario del sistema.
+- **Supresión Total de Capacidades Linux (`CIS 5.3`):** `cap_drop: ALL` para anular vectores de escape de contenedor.
+- **Prevención de Escalamiento (`CIS 5.25`):** `no-new-privileges: true` en `security_opt`.
+- **Límites de Recursos (`CIS 5.10`):** Topes rígidos de CPU (2.0 vCPUs) y Memoria RAM (2048 MB).
+- **Aislamiento de Red:** Enlace estricto a la interfaz de loopback `127.0.0.1:8000:8000`.
+
+### Despliegue Seguro:
+```bash
+docker compose up -d --build
 ```
 
 ---

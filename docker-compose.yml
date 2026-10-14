@@ -1,12 +1,27 @@
+# ==============================================================================
+# Open Hybrid RAG Gateway - Hardened Docker Compose
+# Conforme a CIS Docker Benchmark:
+# - CIS 5.3:  Restricción total de Linux Kernel Capabilities (cap_drop: ALL)
+# - CIS 5.10: Limitación estricta de CPU y Memoria (Memory & CPU limits)
+# - CIS 5.12: Sistema de archivos raíz montado en Sólo Lectura (read_only: true)
+# - CIS 5.25: Prohibición de escalamiento de privilegios (no-new-privileges: true)
+# ==============================================================================
+
 services:
   open-hybrid-rag:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: open_hybrid_rag_gateway
     restart: unless-stopped
+    
+    # Restricción de puerto exclusivamente a la interfaz local (Loopback)
     ports:
       - "127.0.0.1:8000:8000"
+
     env_file:
       - .env
+
     environment:
       - PORT=8000
       - HOST=0.0.0.0
@@ -14,19 +29,51 @@ services:
       - LOCAL_LLM_URL=${LOCAL_LLM_URL:-http://host.docker.internal:11434/api/chat}
       - LOCAL_LLM_MODEL=${LOCAL_LLM_MODEL:-qwen2.5:3b}
       - LOCAL_EMBED_URL=${LOCAL_EMBED_URL:-http://host.docker.internal:11434/api/embeddings}
-      - LOCAL_EMBED_MODEL=${LOCAL_EMBED_MODEL:-qwen3-embedding:8b}
+      - LOCAL_EMBED_MODEL=${LOCAL_EMBED_MODEL:-bge-m3:latest}
       - CLOUD_PROVIDER=${CLOUD_PROVIDER:-gemini}
       - CLOUD_API_KEY=${CLOUD_API_KEY:-}
       - CLOUD_MODEL=${CLOUD_MODEL:-gemini-2.0-flash}
       - PRIVACY_MODE=${PRIVACY_MODE:-hybrid}
-      - SECOND_BRAIN_PATH=/app/knowledge_base
+      - SECOND_BRAIN_PATH=/app/second_brain
+      - INDEX_STORAGE_PATH=/app/data/vector_index.npz
+
+    # CIS 5.12: Root filesystem de sólo lectura
+    read_only: true
+
+    # CIS 5.25: Evitar ganancia de privilegios adicionales
+    security_opt:
+      - "no-new-privileges:true"
+
+    # CIS 5.3: Eliminar todas las capacidades del kernel de Linux
+    cap_drop:
+      - ALL
+
+    # CIS 5.10: Límites estrictos de consumo de recursos
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2048M
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+
+    # Sistema de archivos temporal en RAM con noexec y nosuid para sockets/PID
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64M
+
+    # Volúmenes específicos de escritura para persistencia atómica
     volumes:
-      - ./knowledge_base:/app/knowledge_base
+      - ./data:/app/data:rw
+      - ./knowledge_base:/app/knowledge_base:rw
+      - ./second_brain:/app/second_brain:rw
+
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
       interval: 15s
       timeout: 5s
       retries: 3
-      start_period: 5s
+      start_period: 10s

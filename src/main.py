@@ -3,10 +3,12 @@ import uuid
 import secrets
 import asyncio
 import logging
-from datetime import datetime
+import json
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any, Literal, List
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Response, HTTPException, Depends, Header
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 
@@ -475,6 +477,210 @@ async def orchestrate_query(req: QueryRequest, request: Request, authorized: boo
         },
         "assert_audit": eval_result
     }
+
+@app.post("/api/v1/orchestrate/stream")
+async def orchestrate_query_stream(
+    req: QueryRequest,
+    request: Request,
+    authorized: bool = Depends(verify_api_key)
+):
+    """
+    Streaming SSE de tokens en tiempo real con True Hybrid RAG y persistencia atómica.
+    Retorna Server-Sent Events (SSE) con eventos: 'meta', 'token', 'done'.
+    """
+    async def sse_event_generator():
+        t_start = time.perf_counter()
+        req_id = getattr(request.state, "req_id", f"req-{uuid.uuid4().hex[:8]}")
+
+        # 1. Obtener Embedding de la Consulta
+        vec = await local_engine.get_embedding(req.query)
+        local_available = bool(vec)
+
+        # 2. Evaluación de Ruta Híbrida
+        route = "ESCALATE_TO_CLOUD"
+        best_doc = None
+        score = 0.0
+
+        route, best_doc, score = vector_guard.hybrid_match(
+            query_text=req.query,
+            query_vector=vec,
+            system_prompt=req.system_prompt
+        )
+
+        if req.force_cloud:
+            route = "ESCALATE_TO_CLOUD"
+
+        # Evento Inicial: Metadata de Ruteo
+        source = "unknown"
+        meta_event = {
+            "request_id": req_id,
+            "route_taken": route,
+            "similarity_score": round(score, 4),
+            "force_cloud": req.force_cloud
+        }
+
+        full_answer_tokens = []
+
+        # =====================================================================
+        # ESCENARIO A: RESOLVE_LOCAL_HIGH (QA Cache Hit)
+        # =====================================================================
+        if route == "RESOLVE_LOCAL_HIGH" and best_doc and best_doc.get("type") == "qa_cache":
+            source = "local_vector_cache"
+            meta_event["source"] = source
+            yield f"event: meta\ndata: {json.dumps(meta_event, ensure_ascii=False)}\n\n"
+
+            cached_text = best_doc["text"]
+            words = cached_text.split(" ")
+            for i, word in enumerate(words):
+                token = word + (" " if i < len(words) - 1 else "")
+                full_answer_tokens.append(token)
+                yield f"event: token\ndata: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+
+        # =====================================================================
+        # ESCENARIO B: RESOLVE_LOCAL_MED (RAG con Contexto Local)
+        # =====================================================================
+        elif route == "RESOLVE_LOCAL_MED" and best_doc:
+            source = "local_slm_rag"
+            meta_event["source"] = source
+            yield f"event: meta\ndata: {json.dumps(meta_event, ensure_ascii=False)}\n\n"
+
+            rag_prompt = f"""Usa el siguiente contexto técnico para responder la consulta con precisión:
+
+[CONTEXTO RECUPERADO]:
+{best_doc['text']}
+
+[CONSULTA]:
+{req.query}"""
+
+            streamed_any = False
+            async for token in local_engine.generate_stream(rag_prompt, system_prompt=req.system_prompt):
+                if token.startswith("LOCAL_HTTP_") or token.startswith("LOCAL_STREAM_ERROR:"):
+                    break
+                streamed_any = True
+                full_answer_tokens.append(token)
+                yield f"event: token\ndata: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+
+            if not streamed_any:
+                if config.PRIVACY_MODE == config.PrivacyMode.LOCAL_ONLY or not req.allow_cloud_fallback:
+                    source = "local_privacy_abstention"
+                    msg = "No se encontró evidencia suficiente en la base local y la política de privacidad prohíbe el escalamiento a la nube."
+                    full_answer_tokens.append(msg)
+                    yield f"event: token\ndata: {json.dumps({'token': msg}, ensure_ascii=False)}\n\n"
+                else:
+                    source = f"cloud_{config.CLOUD_PROVIDER}_fallback"
+                    async for token in cloud_bridge.generate_stream(rag_prompt, system_instruction=req.system_prompt):
+                        full_answer_tokens.append(token)
+                        yield f"event: token\ndata: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+
+        # =====================================================================
+        # ESCENARIO C: ESCALATE_TO_CLOUD / Zero-Shot
+        # =====================================================================
+        else:
+            if not req.force_cloud:
+                source = "local_slm_zero_shot"
+                meta_event["source"] = source
+                yield f"event: meta\ndata: {json.dumps(meta_event, ensure_ascii=False)}\n\n"
+
+                streamed_any = False
+                async for token in local_engine.generate_stream(req.query, system_prompt=req.system_prompt):
+                    if token.startswith("LOCAL_HTTP_") or token.startswith("LOCAL_STREAM_ERROR:"):
+                        break
+                    streamed_any = True
+                    full_answer_tokens.append(token)
+                    yield f"event: token\ndata: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+
+                if not streamed_any:
+                    if config.PRIVACY_MODE == config.PrivacyMode.LOCAL_ONLY or not req.allow_cloud_fallback:
+                        source = "local_privacy_abstention"
+                        msg = "No se encontró evidencia suficiente en la base local y la política de privacidad prohíbe el escalamiento a la nube."
+                        full_answer_tokens.append(msg)
+                        yield f"event: token\ndata: {json.dumps({'token': msg}, ensure_ascii=False)}\n\n"
+                    else:
+                        source = f"cloud_{config.CLOUD_PROVIDER}"
+                        async for token in cloud_bridge.generate_stream(req.query, system_instruction=req.system_prompt):
+                            full_answer_tokens.append(token)
+                            yield f"event: token\ndata: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+            else:
+                source = f"cloud_{config.CLOUD_PROVIDER}"
+                meta_event["source"] = source
+                yield f"event: meta\ndata: {json.dumps(meta_event, ensure_ascii=False)}\n\n"
+                async for token in cloud_bridge.generate_stream(req.query, system_instruction=req.system_prompt):
+                    full_answer_tokens.append(token)
+                    yield f"event: token\ndata: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+
+        final_answer = "".join(full_answer_tokens)
+        total_latency_ms = round((time.perf_counter() - t_start) * 1000, 2)
+
+        # Auditoría ASSERT (si aplica)
+        eval_result = None
+        if req.audit_assert and source not in ("local_vector_cache", "local_privacy_abstention"):
+            eval_result = await assert_evaluator.evaluate(req.query, final_answer, source)
+
+        # Persistencia en Second Brain y QA Cache
+        doc_id = None
+        storage_warning = None
+        if source not in ("local_vector_cache", "local_privacy_abstention") and final_answer:
+            try:
+                doc_id = second_brain.save_interaction(
+                    query=req.query,
+                    answer=final_answer,
+                    source=source,
+                    latency_ms=total_latency_ms,
+                    metadata={"similarity_score": score, "route": route}
+                )
+            except Exception as e:
+                storage_warning = f"Storage warning: {str(e)}"
+
+            should_cache = True
+            if eval_result and eval_result.get("passed") is False:
+                should_cache = False
+
+            if should_cache and vec:
+                try:
+                    qa_doc_id = doc_id or f"KB-{uuid.uuid4().hex[:8]}"
+                    vector_guard.add_document(
+                        doc_id=qa_doc_id,
+                        text=final_answer,
+                        vector=vec,
+                        doc_type="qa_cache",
+                        system_prompt=req.system_prompt,
+                        metadata={"source": source, "query": req.query}
+                    )
+                    await asyncio.to_thread(vector_guard.save_to_disk, config.INDEX_STORAGE_PATH)
+                except Exception as e:
+                    if not storage_warning:
+                        storage_warning = f"Vector index persistence warning: {str(e)}"
+
+        metrics_collector.inc_counter("orchestrator_queries_total", route=route, source=source)
+        if "cloud" in source:
+            metrics_collector.inc_counter("cloud_escalations_total", provider=config.CLOUD_PROVIDER)
+
+        # Evento Final: 'done'
+        done_payload = {
+            "answer": final_answer,
+            "route_taken": route,
+            "source": source,
+            "similarity_score": round(score, 4),
+            "second_brain_doc_id": doc_id,
+            "telemetry": {
+                "total_latency_ms": total_latency_ms,
+                "escalated_to_cloud": "cloud" in source,
+                "local_available": local_available,
+                "storage_warning": storage_warning
+            },
+            "assert_audit": eval_result
+        }
+        yield f"event: done\ndata: {json.dumps(done_payload, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        sse_event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
 
 if __name__ == "__main__":
     import uvicorn
