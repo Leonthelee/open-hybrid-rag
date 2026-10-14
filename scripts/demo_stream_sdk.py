@@ -14,7 +14,7 @@ print("=" * 70)
 print("🚀 STREAMING EN VIVO (SSE) DESDE EL SDK -> OPEN HYBRID RAG GATEWAY")
 print("=" * 70)
 
-query = "¿Cuáles son los pasos y métodos HTTP para purgar un proceso en IBM BPM Lombardi?"
+query = "¿Cuál es el procedimiento y escalamiento ante problemas de VPN y credenciales en Active Directory?"
 print(f"❓ Consulta: '{query}'\n")
 
 for event in client.stream_query(query, allow_cloud_fallback=False):

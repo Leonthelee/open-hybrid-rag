@@ -5,7 +5,7 @@ Soporta autenticacion X-API-Key, remocion de frontmatter YAML e indexacion incre
 #>
 param (
     [string]$FolderPath = "./knowledge_base",
-    [string]$GatewayUrl = "http://127.0.0.1:8000/api/v1/ingest",
+    [string]$GatewayUrl = "http://127.0.0.1:8005/api/v1/ingest",
     [string]$ApiKey = $env:API_KEY
 )
 
@@ -37,6 +37,8 @@ foreach ($file in $files) {
         $cleanContent = $matches[1]
     }
     $cleanContent = $cleanContent.Trim()
+    # Sanitizar caracteres de control no imprimibles (excepto salto de linea y tabulacion)
+    $cleanContent = $cleanContent -replace "[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", ""
     if ([string]::IsNullOrWhiteSpace($cleanContent)) { continue }
 
     # Calcular hash SHA-256 del contenido limpio
