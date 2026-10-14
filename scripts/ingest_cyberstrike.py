@@ -165,6 +165,69 @@ CORPUS_CYBERSTRIKE = [
             "framework": "CIS_BENCHMARKS",
             "tags": ["cis", "docker", "containers", "hardening"]
         }
+    },
+    {
+        "doc_id": "sec-cis-linux-os-hardening",
+        "doc_type": "document",
+        "text": """# CIS Linux Benchmark - Hardening de Sistema Operativo y Servidores Host
+
+1. Hardening de Parámetros de Kernel y Red (/etc/sysctl.d/99-cis.conf):
+   - Mitigación SYN Flood: net.ipv4.tcp_syncookies = 1
+   - Prevención de Spoofing e IP Forwarding: net.ipv4.ip_forward = 0, net.ipv4.conf.all.rp_filter = 1
+   - Deshabilitar ICMP Redirects: net.ipv4.conf.all.accept_redirects = 0, net.ipv6.conf.all.accept_redirects = 0
+   - Protección de Enlaces Simbólicos y Memoria: fs.protected_hardlinks = 1, fs.protected_symlinks = 1, fs.suid_dumpable = 0, kernel.randomize_va_space = 2 (ASLR completo).
+
+2. Hardening de SSH Daemon (/etc/ssh/sshd_config):
+   - Deshabilitar acceso root directo: PermitRootLogin no
+   - Deshabilitar autenticación por contraseñas débiles: PasswordAuthentication no
+   - Límite de intentos: MaxAuthTries 3
+   - Criptografía moderna: KexAlgorithms curve25519-sha256, Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com
+   - Deshabilitar X11 y Agentes: X11Forwarding no, AllowTcpForwarding no.
+
+3. Sistema de Archivos, Permisos y Particionado:
+   - Máscara de permisos predeterminada: umask 027 en /etc/profile y /etc/bash.bashrc
+   - Protección de particiones temporales: /tmp y /dev/shm montados con nodev, nosuid, noexec
+   - Permisos estrictos de archivos críticos: chmod 0600 /etc/shadow, chmod 0644 /etc/passwd.
+
+4. Auditoría Inmutable y Cortafuegos:
+   - Servicio auditd activo con reglas inmutables (-e 2) auditando cambios en /etc/passwd, llamadas execve y elevaciones sudo.
+   - Cortafuegos de host (nftables / iptables) con política por defecto DROP en INPUT y FORWARD.""",
+        "metadata": {
+            "source": "cyberstrike_corpus",
+            "framework": "CIS_BENCHMARKS",
+            "tags": ["cis", "linux", "kernel", "ssh", "hardening"]
+        }
+    },
+    {
+        "doc_id": "sec-cis-kubernetes-cloud-native",
+        "doc_type": "document",
+        "text": """# CIS Kubernetes Benchmark - Hardening de Clústeres y Entornos Cloud Native
+
+1. Hardening del Control Plane y API Server:
+   - Control de acceso RBAC estricto: --authorization-mode=Node,RBAC
+   - Deshabilitar acceso anónimo: --anonymous-auth=false
+   - Deshabilitar profiling de depuración: --profiling=false
+   - Cifrado de datos en reposo para etcd mediante EncryptionConfiguration con proveedor KMS / AES-GCM (secretos cifrados en disco).
+
+2. Pod Security Standards (Perfil Restringido / Restricted):
+   - Forzar no-root: securityContext.runAsNonRoot: true, securityContext.runAsUser: 10001
+   - Sistema de archivos inmutable: securityContext.readOnlyRootFilesystem: true
+   - Prohibir escalada de privilegios: securityContext.allowPrivilegeEscalation: false
+   - Eliminación total de capacidades: securityContext.capabilities.drop: ["ALL"]
+   - Perfil Seccomp estricto: seccompProfile.type: RuntimeDefault.
+
+3. Aislamiento de Red (Network Policies):
+   - Política predeterminada de aislamiento DefaultDeny para Ingress y Egress en todos los namespaces con cargas de trabajo de producción.
+   - Apertura explícita punto a punto solo hacia pods y puertos estrictamente requeridos.
+
+4. Gestión de Identidad de Cargas (Service Accounts):
+   - Deshabilitar inyección automática de tokens si el pod no interactúa con la API de Kubernetes:
+     automountServiceAccountToken: false.""",
+        "metadata": {
+            "source": "cyberstrike_corpus",
+            "framework": "CIS_BENCHMARKS",
+            "tags": ["cis", "kubernetes", "cloud_native", "k8s", "hardening"]
+        }
     }
 ]
 
@@ -242,7 +305,7 @@ async def ingest_direct_engine():
     return vector_guard, local_engine
 
 async def verify_similarity(vector_guard: VectorGuard, local_engine: LocalEngine):
-    print("\n🔍 Verificando recuperación semántica (RAG) con consulta de prueba:")
+    print("\n🔍 Verificando recuperación True Hybrid RAG con consulta de prueba:")
     query = "¿Cómo mitigar OWASP API3:2023 Broken Object Property Level Authorization (BOPLA)?"
     print(f"Query: \"{query}\"")
     
@@ -251,14 +314,16 @@ async def verify_similarity(vector_guard: VectorGuard, local_engine: LocalEngine
     embed_ms = (time.perf_counter() - t0) * 1000
     
     t1 = time.perf_counter()
-    route, doc, score = vector_guard.match(q_vec)
+    route, doc, score = vector_guard.hybrid_match(query_text=query, query_vector=q_vec)
     search_ms = (time.perf_counter() - t1) * 1000
 
     print(f"   Ruta Matemática: {route}")
-    print(f"   Similitud Coseno: {score:.4f}")
-    print(f"   Latencia Embedding: {embed_ms:.2f} ms | Búsqueda Matricial: {search_ms:.3f} ms")
+    print(f"   Similitud / Score Efectivo: {score:.4f}")
+    print(f"   Latencia Embedding: {embed_ms:.2f} ms | Búsqueda Híbrida: {search_ms:.3f} ms")
     if doc:
         print(f"   Doc Recuperado: {doc.get('id')}")
+        if "hybrid_metrics" in doc:
+            print(f"   Métricas Híbridas: {doc.get('hybrid_metrics')}")
         print(f"   Primeras líneas: {doc.get('text', '')[:250]}...")
     print("=" * 60)
 

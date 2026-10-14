@@ -74,7 +74,7 @@ CLOUD_MAX_TOKENS = int(os.getenv("CLOUD_MAX_TOKENS", 2048))
 
 # Knowledge Base & Persistence Paths
 SECOND_BRAIN_PATH = os.getenv("SECOND_BRAIN_PATH", "./knowledge_base")
-INDEX_STORAGE_PATH = os.path.join(SECOND_BRAIN_PATH, "index.npz")
+INDEX_STORAGE_PATH = os.getenv("INDEX_STORAGE_PATH", os.path.join("./knowledge_base", "index.npz"))
 
 # Mathematical Routing Thresholds
 RAG_CERTAINTY_THRESHOLD = float(os.getenv("RAG_CERTAINTY_THRESHOLD", 0.85))
