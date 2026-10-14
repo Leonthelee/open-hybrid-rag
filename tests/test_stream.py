@@ -1,6 +1,7 @@
 import unittest
 import asyncio
 import json
+from unittest.mock import patch
 from starlette.testclient import TestClient
 import httpx
 from src.main import app, vector_guard, local_engine
@@ -15,6 +16,8 @@ class TestStreamingSSE(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        cls.save_patcher = patch.object(vector_guard, "save_to_disk")
+        cls.save_patcher.start()
         cls.api_key = config.API_KEY or "test_key"
         cls.headers = {"X-API-Key": cls.api_key}
         cls.client = TestClient(app, headers=cls.headers)
@@ -116,6 +119,10 @@ class TestStreamingSSE(unittest.TestCase):
         }
         response = self.client.post("/api/v1/orchestrate/stream", json=payload, headers=self.headers)
         self.assertEqual(response.status_code, 200)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.save_patcher.stop()
 
 if __name__ == "__main__":
     unittest.main()

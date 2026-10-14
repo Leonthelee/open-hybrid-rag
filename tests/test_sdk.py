@@ -3,7 +3,7 @@ import asyncio
 from unittest.mock import patch
 import httpx
 
-from src.main import app
+from src.main import app, vector_guard
 from src import config
 from sdk import (
     OpenHybridRAGClient,
@@ -14,6 +14,8 @@ from sdk import (
 
 class TestPythonSDK(unittest.TestCase):
     def setUp(self):
+        self.save_patcher = patch.object(vector_guard, "save_to_disk")
+        self.save_patcher.start()
         self.api_key = config.API_KEY or "test_key"
         self.client = OpenHybridRAGClient(
             base_url="http://testserver",
@@ -23,6 +25,7 @@ class TestPythonSDK(unittest.TestCase):
         )
 
     def tearDown(self):
+        self.save_patcher.stop()
         self.client.close()
 
     def test_sdk_health_and_metrics(self):
