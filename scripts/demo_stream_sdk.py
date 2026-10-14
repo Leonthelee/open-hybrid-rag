@@ -14,7 +14,7 @@ print("=" * 70)
 print("🚀 STREAMING EN VIVO (SSE) DESDE EL SDK -> OPEN HYBRID RAG GATEWAY")
 print("=" * 70)
 
-query = "¿Cuál es el procedimiento y escalamiento ante problemas de VPN y credenciales en Active Directory?"
+query = "¿Cuál es el software oficial, la dirección del nuevo servidor y el procedimiento con Cisco Duo MFA para la VPN del MOP?"
 print(f"❓ Consulta: '{query}'\n")
 
 for event in client.stream_query(query, allow_cloud_fallback=False):
