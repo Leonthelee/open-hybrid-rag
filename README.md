@@ -174,7 +174,7 @@ python scripts/stress_test_local.py
 ```bash
 python -m unittest discover tests
 ```
-*52 tests unitarios pasando al 100% en menos de 0.75 segundos.*
+*57 tests unitarios pasando al 100% en verde (cobertura total de RAG, BM25, Seguridad, Métricas y SDK).*
 
 ---
 
@@ -273,7 +273,48 @@ curl -X POST http://127.0.0.1:8000/api/v1/orchestrate \
     "technical_score": 9,
     "overall_score": 9
   }
-}
+```
+
+---
+
+## 📦 Python Client SDK (Resiliente Sync & Async)
+
+El proyecto incluye un cliente SDK nativo (`sdk/client.py`) con manejo inteligente de congestión:
+- **Resiliencia Automática ante `HTTP 429 Too Many Requests`:** Lee la cabecera `Retry-After` del gateway y aplica un backoff con *jitter* aleatorio antes de reintentar de forma transparente.
+- **Backoff Exponencial para Errores 5xx:** Reintentos progresivos con jitter ante intermitencias.
+- **Interfaces Duales:** Cliente sincrónico (`OpenHybridRAGClient`) y cliente asíncrono para eventos (`AsyncOpenHybridRAGClient`).
+
+### Uso Rápido (Sincrónico):
+```python
+from sdk import OpenHybridRAGClient
+
+# Inicializar cliente apuntando al Gateway
+client = OpenHybridRAGClient(base_url="http://127.0.0.1:8000", api_key="tu_api_key")
+
+# Consulta orquestada con auto-retry transparente
+response = client.query(
+    "¿Cuáles son los controles CIS críticos para contenedores Docker?",
+    allow_cloud_fallback=True
+)
+
+print(f"Ruta: {response.route_taken} | Similaridad: {response.similarity_score}")
+print(f"Respuesta: {response.answer}")
+```
+
+### Uso Asíncrono (`asyncio` / FastAPI):
+```python
+import asyncio
+from sdk import AsyncOpenHybridRAGClient
+
+async def main():
+    async with AsyncOpenHybridRAGClient(base_url="http://127.0.0.1:8000") as client:
+        health = await client.health()
+        print(f"Estado del Gateway: {health['status']}")
+        
+        resp = await client.query("¿Cómo prevenir ataques SSRF?")
+        print(resp.answer)
+
+asyncio.run(main())
 ```
 
 ---
